@@ -1,0 +1,13 @@
+{
+  "name": "@example/payroll-lite-cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "cli": "node --experimental-specifier-resolution=node --loader ts-node/esm src/index.ts",
+    "build": "rm -rf dist && tsc --project tsconfig.json"
+  },
+  "dependencies": {
+    "@example/payroll-lite-contract": "*"
+  }
+}

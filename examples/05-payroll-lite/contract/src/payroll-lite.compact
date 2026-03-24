@@ -1,0 +1,65 @@
+pragma language_version >= 0.20;
+
+import CompactStandardLibrary;
+
+export ledger commitments: HistoricMerkleTree<32, Bytes<32>>;
+export ledger nullifiers: Set<Bytes<32>>;
+export ledger period: Counter;
+export ledger employer: Bytes<32>;
+export ledger claimedAmount: Counter;
+
+witness localSecretKey(): Bytes<32>;
+witness salaryAmount(): Uint<16>;
+witness commitmentMerklePath(): MerkleTreePath<32, Bytes<32>>;
+
+constructor() {
+  employer = disclose(derivePublicKey(localSecretKey()));
+  period.increment(1);
+}
+
+export circuit derivePublicKey(sk: Bytes<32>): Bytes<32> {
+  return persistentHash<Vector<2, Bytes<32>>>([pad(32, "payroll:pk:"), sk]);
+}
+
+export circuit computeCommitment(pubKey: Bytes<32>, salary: Bytes<32>, periodNum: Bytes<32>): Bytes<32> {
+  return persistentHash<Vector<4, Bytes<32>>>([pad(32, "payroll:commit:"), pubKey, salary, periodNum]);
+}
+
+export circuit computeNullifier(sk: Bytes<32>, periodNum: Bytes<32>): Bytes<32> {
+  return persistentHash<Vector<3, Bytes<32>>>([pad(32, "payroll:null:"), sk, periodNum]);
+}
+
+export circuit commitSalary(commitment: Bytes<32>): [] {
+  const sk = localSecretKey();
+  assert(derivePublicKey(sk) == employer, "Not employer");
+  commitments.insert(disclose(commitment));
+}
+
+export circuit claimSalary(): Uint<16> {
+  const sk = localSecretKey();
+  const salary = salaryAmount();
+  const pubKey = derivePublicKey(sk);
+  const currentPeriod = period.read();
+  const periodBytes = currentPeriod as Field as Bytes<32>;
+  const salaryBytes = (salary as Field) as Bytes<32>;
+  const commitment = computeCommitment(pubKey, salaryBytes, periodBytes);
+  const path = commitmentMerklePath();
+  const root = merkleTreePathRoot<32, Bytes<32>>(path);
+  assert(commitments.checkRoot(disclose(root)), "Commitment not found");
+  const nullifier = computeNullifier(sk, periodBytes);
+  assert(!nullifiers.member(disclose(nullifier)), "Already claimed");
+  nullifiers.insert(disclose(nullifier));
+  claimedAmount.increment(disclose(salary));
+  return disclose(salary);
+}
+
+export circuit newPeriod(): [] {
+  const sk = localSecretKey();
+  assert(derivePublicKey(sk) == employer, "Not employer");
+  period.increment(1);
+  commitments.resetHistory();
+}
+
+export circuit getPeriod(): Uint<64> {
+  return period.read();
+}
