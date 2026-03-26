@@ -28,6 +28,7 @@ npm-debug.log*
 
 # Coverage
 coverage/
+midnight-level-db/
 
 # TypeScript
 *.tsbuildinfo

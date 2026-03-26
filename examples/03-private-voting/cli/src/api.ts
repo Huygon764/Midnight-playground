@@ -92,13 +92,20 @@ export const joinContract = async (
   providers: VotingProviders,
   contractAddress: string,
   secretKey: Uint8Array,
+  timeoutMs = 120_000,
 ): Promise<DeployedVotingContract> => {
-  return await findDeployedContract(providers, {
-    contractAddress,
-    compiledContract,
-    privateStateId: "votingPrivateState",
-    initialPrivateState: { secretKey },
-  });
+  const result = await Promise.race([
+    findDeployedContract(providers, {
+      contractAddress,
+      compiledContract,
+      privateStateId: "votingPrivateState",
+      initialPrivateState: { secretKey },
+    }),
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error(`Join timed out after ${timeoutMs / 1000}s — check that the contract address is correct`)), timeoutMs),
+    ),
+  ]);
+  return result;
 };
 
 export const registerVoter = async (

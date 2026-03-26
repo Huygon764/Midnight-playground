@@ -88,7 +88,9 @@ const deployOrJoin = async (
         const skHex = await rli.question("Your secret key (hex): ");
         try {
           const secretKey = Buffer.from(skHex.trim(), "hex");
-          const contract = await api.joinContract(providers, addr.trim(), secretKey);
+          const contract = await api.withStatus("Joining contract", () =>
+            api.joinContract(providers, addr.trim(), secretKey),
+          );
           return { contract, secretKey };
         } catch (e) { console.log(`  x Failed: ${e instanceof Error ? e.message : e}\n`); }
         break;

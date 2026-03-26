@@ -2,7 +2,7 @@ pragma language_version >= 0.20;
 
 import CompactStandardLibrary;
 
-export ledger voters: HistoricMerkleTree<32, Bytes<32>>;
+export ledger voters: HistoricMerkleTree<8, Bytes<32>>;
 export ledger nullifiers: Set<Bytes<32>>;
 export ledger yesVotes: Counter;
 export ledger noVotes: Counter;
@@ -13,7 +13,7 @@ constructor() {
 }
 
 witness localSecretKey(): Bytes<32>;
-witness voterMerklePath(): MerkleTreePath<32, Bytes<32>>;
+witness voterMerklePath(): MerkleTreePath<8, Bytes<32>>;
 
 export circuit voterCommitment(sk: Bytes<32>): Bytes<32> {
   return persistentHash<Vector<2, Bytes<32>>>([pad(32, "vote:commit:"), sk]);
@@ -33,7 +33,7 @@ export circuit castVote(vote: Boolean): [] {
   const sk = localSecretKey();
   const commitment = voterCommitment(sk);
   const path = voterMerklePath();
-  const root = merkleTreePathRoot<32, Bytes<32>>(path);
+  const root = merkleTreePathRoot<8, Bytes<32>>(path);
   assert(voters.checkRoot(disclose(root)), "Not a registered voter");
   const nullifier = voterNullifier(sk);
   assert(!nullifiers.member(disclose(nullifier)), "Already voted");
