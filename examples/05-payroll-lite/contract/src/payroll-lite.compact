@@ -2,7 +2,7 @@ pragma language_version >= 0.20;
 
 import CompactStandardLibrary;
 
-export ledger commitments: HistoricMerkleTree<32, Bytes<32>>;
+export ledger commitments: HistoricMerkleTree<8, Bytes<32>>;
 export ledger nullifiers: Set<Bytes<32>>;
 export ledger period: Counter;
 export ledger employer: Bytes<32>;
@@ -10,7 +10,7 @@ export ledger claimedAmount: Counter;
 
 witness localSecretKey(): Bytes<32>;
 witness salaryAmount(): Uint<16>;
-witness commitmentMerklePath(): MerkleTreePath<32, Bytes<32>>;
+witness commitmentMerklePath(): MerkleTreePath<8, Bytes<32>>;
 
 constructor() {
   employer = disclose(derivePublicKey(localSecretKey()));
@@ -44,7 +44,7 @@ export circuit claimSalary(): Uint<16> {
   const salaryBytes = (salary as Field) as Bytes<32>;
   const commitment = computeCommitment(pubKey, salaryBytes, periodBytes);
   const path = commitmentMerklePath();
-  const root = merkleTreePathRoot<32, Bytes<32>>(path);
+  const root = merkleTreePathRoot<8, Bytes<32>>(path);
   assert(commitments.checkRoot(disclose(root)), "Commitment not found");
   const nullifier = computeNullifier(sk, periodBytes);
   assert(!nullifiers.member(disclose(nullifier)), "Already claimed");

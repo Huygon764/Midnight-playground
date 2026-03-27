@@ -1,238 +1,316 @@
-"use client";
+import { useState, useEffect, useCallback } from "react";
+import { type PayrollDerivedState, PayrollAPI, type DeployedPayrollAPI, utils } from "../../api/src/index.js";
+import { PayrollLite, createPayrollPrivateState } from "../../contract/src/index.js";
+import { getProviders } from "./providers.js";
+import { toHex } from "@midnight-ntwrk/midnight-js-utils";
 
-import { useState } from "react";
+type AppPhase = "connect" | "connecting" | "contract-setup" | "role-select" | "ready" | "error";
+type Role = "employer" | "employee";
 
-type WalletState = {
-  connected: boolean;
-  address?: string;
-};
-
-type Role = "employer" | "employee" | null;
-
-function ConnectWallet({
-  onConnect,
-}: {
-  onConnect: (address: string) => void;
-}) {
-  const [error, setError] = useState<string | null>(null);
-
-  const connect = async () => {
-    try {
-      setError(null);
-      const midnight = (window as any).midnight;
-      if (!midnight?.mnLace) {
-        setError("Lace wallet extension not found. Please install it.");
-        return;
-      }
-      const api = await midnight.mnLace.connect("preprod");
-      const addresses = await api.getShieldedAddresses();
-      if (addresses.length > 0) {
-        onConnect(addresses[0]);
-      }
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Connection failed");
-    }
-  };
-
-  return (
-    <div className="card">
-      <h2>Connect Wallet</h2>
-      <button onClick={connect}>Connect Lace Wallet</button>
-      {error && <div className="status error">{error}</div>}
-    </div>
-  );
+function formatError(e: unknown): string {
+  if (!(e instanceof Error)) return String(e);
+  const cause = (e as any).cause;
+  if (cause instanceof Error) return `${e.message}: ${cause.message}`;
+  return e.message;
 }
 
-function RoleSelector({
-  onSelect,
-}: {
-  onSelect: (role: Role) => void;
-}) {
+function Spinner({ message }: { message: string }) {
   return (
     <div className="card">
-      <h2>Select Role</h2>
-      <p style={{ marginBottom: "1rem", color: "#aaa" }}>
-        Are you the employer or an employee?
-      </p>
-      <div className="role-selector">
-        <button onClick={() => onSelect("employer")}>Employer</button>
-        <button onClick={() => onSelect("employee")}>Employee</button>
+      <div className="spinner-row">
+        <div className="spinner" />
+        <span>{message}</span>
       </div>
     </div>
   );
 }
 
-function EmployerView() {
+export default function App() {
+  const [phase, setPhase] = useState<AppPhase>("connect");
+  const [error, setError] = useState("");
+  const [role, setRole] = useState<Role | null>(null);
+  const [api, setApi] = useState<DeployedPayrollAPI | null>(null);
+  const [payrollState, setPayrollState] = useState<PayrollDerivedState | null>(null);
   const [contractAddress, setContractAddress] = useState("");
+  const [isWorking, setIsWorking] = useState(false);
+  const [workingMessage, setWorkingMessage] = useState("");
+  const [txStatus, setTxStatus] = useState("");
+
+  const [joinAddress, setJoinAddress] = useState("");
+  const [joinSecretKey, setJoinSecretKey] = useState("");
+
+  useEffect(() => {
+    if (!api) return;
+    const sub = api.state$.subscribe({
+      next: (state) => setPayrollState(state),
+      error: (err) => setError(err.message),
+    });
+    return () => sub.unsubscribe();
+  }, [api]);
+
+  const connectWallet = useCallback(async () => {
+    try {
+      setPhase("connecting");
+      setError("");
+      await getProviders();
+      setPhase("contract-setup");
+    } catch (e) {
+      console.error("Connect failed:", e);
+      setError(formatError(e));
+      setPhase("error");
+    }
+  }, []);
+
+  const deployContract = useCallback(async () => {
+    setIsWorking(true);
+    setWorkingMessage("Deploying payroll contract...");
+    setTxStatus("");
+    try {
+      const providers = await getProviders();
+      const payrollApi = await PayrollAPI.deploy(providers);
+      setApi(payrollApi);
+      setContractAddress(payrollApi.deployedContractAddress);
+      const pubKey = await payrollApi.derivePublicKey();
+      setTxStatus(`Deployed. Your public key: ${toHex(pubKey)}`);
+      setPhase("role-select");
+    } catch (e) {
+      console.error("Deploy failed:", e);
+      setTxStatus(`Deploy failed: ${formatError(e)}`);
+    } finally {
+      setIsWorking(false);
+      setWorkingMessage("");
+    }
+  }, []);
+
+  const joinContract = useCallback(async () => {
+    if (!joinAddress.trim()) return;
+    setIsWorking(true);
+    setWorkingMessage("Joining contract...");
+    setTxStatus("");
+    try {
+      const providers = await getProviders();
+      // If secret key provided (employer rejoining), set it in provider
+      if (joinSecretKey.trim()) {
+        const skBytes = hexToBytes(joinSecretKey.trim());
+        await providers.privateStateProvider.set("payrollPrivateState" as any, createPayrollPrivateState(skBytes, 0n) as any);
+      }
+      const payrollApi = await PayrollAPI.join(providers, joinAddress.trim(), 0n);
+      setApi(payrollApi);
+      setContractAddress(payrollApi.deployedContractAddress);
+      setPhase("role-select");
+      setTxStatus("Joined contract");
+    } catch (e) {
+      console.error("Join failed:", e);
+      setTxStatus(`Join failed: ${formatError(e)}`);
+    } finally {
+      setIsWorking(false);
+      setWorkingMessage("");
+    }
+  }, [joinAddress, joinSecretKey]);
+
+  // === EMPLOYER ACTIONS ===
+
   const [empPubKey, setEmpPubKey] = useState("");
-  const [salaryAmount, setSalaryAmount] = useState("");
-  const [period, setPeriod] = useState<number | null>(null);
-  const [status, setStatus] = useState("");
+  const [commitAmount, setCommitAmount] = useState("");
 
-  const deploy = () => {
-    setContractAddress("0x" + "a".repeat(64));
-    setStatus("Contract deployed (demo). In production, this calls the contract deployer.");
-    setPeriod(1);
-  };
+  const commitSalary = useCallback(async () => {
+    if (!api || !empPubKey || !commitAmount) return;
+    setIsWorking(true);
+    setWorkingMessage("Committing salary...");
+    setTxStatus("");
+    try {
+      const pubKeyBytes = hexToBytes(empPubKey);
+      const salary = BigInt(commitAmount);
+      const period = payrollState?.period ?? 1n;
+      await api.commitSalary(pubKeyBytes, salary, period);
+      setTxStatus(`Salary committed: ${commitAmount} for period ${period}`);
+      setEmpPubKey("");
+      setCommitAmount("");
+    } catch (e) {
+      console.error("Commit failed:", e);
+      setTxStatus(`Failed: ${formatError(e)}`);
+    } finally {
+      setIsWorking(false);
+      setWorkingMessage("");
+    }
+  }, [api, empPubKey, commitAmount, payrollState]);
 
-  const commitSalary = () => {
-    if (!empPubKey || !salaryAmount) return;
-    setStatus(
-      `Salary commitment submitted: ${salaryAmount} for employee ${empPubKey.substring(0, 16)}...`,
+  const newPeriod = useCallback(async () => {
+    if (!api) return;
+    setIsWorking(true);
+    setWorkingMessage("Starting new period...");
+    setTxStatus("");
+    try {
+      await api.newPeriod();
+      setTxStatus("New period started");
+    } catch (e) {
+      console.error("New period failed:", e);
+      setTxStatus(`Failed: ${formatError(e)}`);
+    } finally {
+      setIsWorking(false);
+      setWorkingMessage("");
+    }
+  }, [api]);
+
+  // === EMPLOYEE ACTIONS ===
+
+  const [claimSk, setClaimSk] = useState("");
+  const [claimSalary_, setClaimSalary_] = useState("");
+
+  const generateKeypair = useCallback(() => {
+    const sk = utils.randomBytes(32);
+    const pk = PayrollLite.pureCircuits.derivePublicKey(sk);
+    setTxStatus(`Secret key: ${toHex(sk)}\nPublic key: ${toHex(pk)}\n(Give public key to employer, keep secret key safe)`);
+  }, []);
+
+  const claimSalary = useCallback(async () => {
+    if (!api || !claimSk || !claimSalary_) return;
+    setIsWorking(true);
+    setWorkingMessage("Claiming salary (ZK proof + submit)...");
+    setTxStatus("");
+    try {
+      const providers = await getProviders();
+      const skBytes = hexToBytes(claimSk);
+      const salary = BigInt(claimSalary_);
+      await providers.privateStateProvider.set("payrollPrivateState" as any, createPayrollPrivateState(skBytes, salary) as any);
+      await api.claimSalary();
+      setTxStatus("Salary claimed successfully");
+      setClaimSk("");
+      setClaimSalary_("");
+    } catch (e) {
+      console.error("Claim failed:", e);
+      setTxStatus(`Failed: ${formatError(e)}`);
+    } finally {
+      setIsWorking(false);
+      setWorkingMessage("");
+    }
+  }, [api, claimSk, claimSalary_]);
+
+  // === RENDER ===
+
+  if (phase === "connect" || phase === "error") {
+    return (
+      <div>
+        <h1>Payroll Lite</h1>
+        <p>Private payroll on Midnight using commitment/nullifier pattern.</p>
+        <div className="card">
+          <h2>Connect Wallet</h2>
+          <button onClick={connectWallet}>Connect Lace Wallet</button>
+        </div>
+        {error && <div className="card"><div className="status error">{error}</div></div>}
+      </div>
     );
-    // In production, this would compute commitment and call contract.callTx.commitSalary()
-  };
+  }
 
-  const newPeriod = () => {
-    setPeriod((p) => (p ?? 0) + 1);
-    setStatus("New period started. Merkle history reset.");
-    // In production, this would call contract.callTx.newPeriod()
-  };
+  if (phase === "connecting") {
+    return <div><h1>Payroll Lite</h1><Spinner message="Connecting to Lace wallet..." /></div>;
+  }
 
-  return (
-    <>
-      <div className="card">
-        <h2>Deploy Contract</h2>
-        <button onClick={deploy} disabled={!!contractAddress}>
-          {contractAddress ? "Deployed" : "Deploy Payroll Contract"}
-        </button>
-        {contractAddress && (
-          <div className="status connected">
-            Contract: {contractAddress.substring(0, 20)}...
+  if (phase === "contract-setup") {
+    return (
+      <div>
+        <h1>Payroll Lite</h1>
+        <div className="status connected">Wallet connected</div>
+
+        <div className="card">
+          <h2>Deploy New Contract</h2>
+          <button onClick={deployContract} disabled={isWorking}>Deploy</button>
+        </div>
+
+        <div className="card">
+          <h2>Join Existing Contract</h2>
+          <input placeholder="Contract address (hex)" value={joinAddress} onChange={(e) => setJoinAddress(e.target.value)} />
+          <input placeholder="Secret key (hex, employer only - optional)" value={joinSecretKey} onChange={(e) => setJoinSecretKey(e.target.value)} />
+          <button onClick={joinContract} disabled={isWorking || !joinAddress.trim()}>Join</button>
+        </div>
+
+        {isWorking && <Spinner message={workingMessage} />}
+        {txStatus && <div className="card"><div className={`status ${txStatus.includes("failed") || txStatus.includes("Failed") ? "error" : "connected"}`}>{txStatus}</div></div>}
+      </div>
+    );
+  }
+
+  if (phase === "role-select") {
+    return (
+      <div>
+        <h1>Payroll Lite</h1>
+        <div className="status connected">Contract: {contractAddress}</div>
+        <div className="card">
+          <h2>Select Role</h2>
+          <div className="role-selector">
+            <button onClick={() => { setRole("employer"); setPhase("ready"); setTxStatus(""); }}>Employer</button>
+            <button onClick={() => { setRole("employee"); setPhase("ready"); setTxStatus(""); }}>Employee</button>
           </div>
-        )}
+        </div>
+        {txStatus && <div className="card"><div className="status connected">{txStatus}</div></div>}
+      </div>
+    );
+  }
+
+  // Ready
+  return (
+    <div>
+      <h1>Payroll Lite</h1>
+      <div className="status connected">
+        Contract: {contractAddress} | Role: {role === "employer" ? "Employer" : "Employee"}
       </div>
 
-      {contractAddress && (
+      {payrollState && (
+        <div className="card">
+          <h2>Status</h2>
+          <div>Period: {payrollState.period.toString()} | Total Claimed: {payrollState.claimedAmount.toString()}</div>
+        </div>
+      )}
+
+      {isWorking && <Spinner message={workingMessage} />}
+
+      {role === "employer" && !isWorking && (
         <>
           <div className="card">
             <h2>Commit Salary</h2>
-            <label>Employee Public Key (hex)</label>
-            <input
-              placeholder="0x..."
-              value={empPubKey}
-              onChange={(e) => setEmpPubKey(e.target.value)}
-            />
-            <label>Salary Amount</label>
-            <input
-              placeholder="e.g. 5000"
-              type="number"
-              value={salaryAmount}
-              onChange={(e) => setSalaryAmount(e.target.value)}
-            />
-            <button onClick={commitSalary} disabled={!empPubKey || !salaryAmount}>
-              Commit Salary
-            </button>
+            <input placeholder="Employee public key (hex)" value={empPubKey} onChange={(e) => setEmpPubKey(e.target.value)} />
+            <input placeholder="Salary amount" type="number" value={commitAmount} onChange={(e) => setCommitAmount(e.target.value)} />
+            <button onClick={commitSalary} disabled={!empPubKey || !commitAmount}>Commit</button>
           </div>
-
           <div className="card">
             <h2>Period Management</h2>
-            {period !== null && (
-              <div className="status info">Current Period: {period}</div>
-            )}
             <button onClick={newPeriod}>Start New Period</button>
           </div>
         </>
       )}
 
-      {status && (
-        <div className="card">
-          <div className="status connected">{status}</div>
-        </div>
-      )}
-    </>
-  );
-}
-
-function EmployeeView() {
-  const [contractAddress, setContractAddress] = useState("");
-  const [period, setPeriod] = useState<number | null>(null);
-  const [claimStatus, setClaimStatus] = useState("");
-
-  const joinContract = () => {
-    if (!contractAddress) return;
-    setPeriod(1);
-    setClaimStatus("Joined contract. You can now claim salary.");
-    // In production, this would call findDeployedContract()
-  };
-
-  const claimSalary = () => {
-    setClaimStatus("Salary claim submitted. Nullifier generated to prevent double-claim.");
-    // In production, this would call contract.callTx.claimSalary()
-  };
-
-  return (
-    <>
-      <div className="card">
-        <h2>Join Contract</h2>
-        <label>Contract Address (hex)</label>
-        <input
-          placeholder="Contract address..."
-          value={contractAddress}
-          onChange={(e) => setContractAddress(e.target.value)}
-        />
-        <button onClick={joinContract} disabled={!contractAddress}>
-          Join Contract
-        </button>
-      </div>
-
-      {period !== null && (
+      {role === "employee" && !isWorking && (
         <>
           <div className="card">
+            <h2>Generate Keypair</h2>
+            <p style={{ color: "#aaa", marginBottom: "0.5rem" }}>Generate a new keypair. Give public key to employer.</p>
+            <button onClick={generateKeypair}>Generate</button>
+          </div>
+          <div className="card">
             <h2>Claim Salary</h2>
-            <div className="status info">Current Period: {period}</div>
-            <button onClick={claimSalary}>Claim Salary</button>
+            <input placeholder="Your secret key (hex)" value={claimSk} onChange={(e) => setClaimSk(e.target.value)} />
+            <input placeholder="Your salary amount" type="number" value={claimSalary_} onChange={(e) => setClaimSalary_(e.target.value)} />
+            <button onClick={claimSalary} disabled={!claimSk || !claimSalary_}>Claim</button>
           </div>
         </>
       )}
 
-      {claimStatus && (
+      {txStatus && (
         <div className="card">
-          <div className="status connected">{claimStatus}</div>
+          <div className={`status ${txStatus.includes("failed") || txStatus.includes("Failed") ? "error" : "connected"}`}>
+            <pre style={{ whiteSpace: "pre-wrap", margin: 0 }}>{txStatus}</pre>
+          </div>
         </div>
-      )}
-    </>
-  );
-}
-
-export default function App() {
-  const [wallet, setWallet] = useState<WalletState>({ connected: false });
-  const [role, setRole] = useState<Role>(null);
-
-  return (
-    <div>
-      <h1>Payroll Lite</h1>
-      <p>
-        Private payroll on Midnight using commitment/nullifier pattern with
-        HistoricMerkleTree.
-      </p>
-
-      {!wallet.connected ? (
-        <ConnectWallet
-          onConnect={(addr) => setWallet({ connected: true, address: addr })}
-        />
-      ) : !role ? (
-        <>
-          <div className="status connected">
-            Connected: {wallet.address?.substring(0, 20)}...
-          </div>
-          <RoleSelector onSelect={setRole} />
-        </>
-      ) : (
-        <>
-          <div className="status connected">
-            Connected: {wallet.address?.substring(0, 20)}... | Role:{" "}
-            {role.charAt(0).toUpperCase() + role.slice(1)}
-            <button
-              style={{ marginLeft: "1rem", fontSize: "0.8rem", padding: "0.25rem 0.75rem" }}
-              onClick={() => setRole(null)}
-            >
-              Switch Role
-            </button>
-          </div>
-          {role === "employer" ? <EmployerView /> : <EmployeeView />}
-        </>
       )}
     </div>
   );
+}
+
+function hexToBytes(hex: string): Uint8Array {
+  const clean = hex.startsWith("0x") ? hex.slice(2) : hex;
+  const bytes = new Uint8Array(clean.length / 2);
+  for (let i = 0; i < bytes.length; i++) {
+    bytes[i] = parseInt(clean.substring(i * 2, i * 2 + 2), 16);
+  }
+  return bytes;
 }

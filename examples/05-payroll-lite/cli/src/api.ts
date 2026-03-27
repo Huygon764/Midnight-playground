@@ -107,13 +107,20 @@ export const joinContract = async (
   contractAddress: string,
   secretKey: Uint8Array,
   salary: bigint,
+  timeoutMs = 120_000,
 ): Promise<DeployedPayrollContract> => {
-  return await findDeployedContract(providers, {
-    contractAddress,
-    compiledContract,
-    privateStateId: "payrollPrivateState",
-    initialPrivateState: createPayrollPrivateState(secretKey, salary),
-  });
+  const result = await Promise.race([
+    findDeployedContract(providers, {
+      contractAddress,
+      compiledContract,
+      privateStateId: "payrollPrivateState",
+      initialPrivateState: createPayrollPrivateState(secretKey, salary),
+    }),
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error(`Join timed out after ${timeoutMs / 1000}s — check that the contract address is correct`)), timeoutMs),
+    ),
+  ]);
+  return result;
 };
 
 export const commitSalary = async (
@@ -126,9 +133,8 @@ export const commitSalary = async (
 
 export const claimSalary = async (
   contract: DeployedPayrollContract,
-): Promise<{ public: FinalizedTxData; private: bigint }> => {
-  const result = await contract.callTx.claimSalary();
-  return { public: result.public, private: result.private };
+): Promise<void> => {
+  await contract.callTx.claimSalary();
 };
 
 export const newPeriod = async (contract: DeployedPayrollContract): Promise<FinalizedTxData> => {
@@ -137,10 +143,11 @@ export const newPeriod = async (contract: DeployedPayrollContract): Promise<Fina
 };
 
 export const getPeriod = async (
-  contract: DeployedPayrollContract,
+  providers: PayrollProviders,
+  contractAddress: ContractAddress,
 ): Promise<bigint> => {
-  const result = await contract.callTx.getPeriod();
-  return result.private;
+  const state = await getPayrollState(providers, contractAddress);
+  return state?.period ?? 0n;
 };
 
 const signTransactionIntents = (

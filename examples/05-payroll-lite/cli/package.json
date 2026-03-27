@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "cli": "node --experimental-specifier-resolution=node --loader ts-node/esm src/index.ts",
+    "cli": "tsx src/index.ts",
     "build": "rm -rf dist && tsc --project tsconfig.json"
   },
   "dependencies": {
