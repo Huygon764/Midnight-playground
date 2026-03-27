@@ -1,0 +1,286 @@
+pragma language_version >= 0.20;
+
+import CompactStandardLibrary;
+
+// ============================================================
+// LEDGER STATE
+// ============================================================
+
+// Token
+export ledger balances: Map<Bytes<32>, Uint<64>>;
+export ledger totalSupply: Counter;
+
+// Multisig
+export ledger signers: Set<Bytes<32>>;
+export ledger signerCount: Counter;
+export ledger threshold: Uint<8>;
+export ledger owner: Bytes<32>;
+export ledger finalized: Boolean;
+
+// Transaction Queue
+export ledger txCounter: Counter;
+export ledger txTypes: Map<Uint<64>, Uint<8>>;
+export ledger txStatuses: Map<Uint<64>, Uint<8>>;
+export ledger txApprovalCounts: Map<Uint<64>, Counter>;
+export ledger txNullifiers: Set<Bytes<32>>;
+
+// Transaction Params
+export ledger txAmounts: Map<Uint<64>, Uint<64>>;
+export ledger txRecipients: Map<Uint<64>, Bytes<32>>;
+export ledger txTargetSigners: Map<Uint<64>, Bytes<32>>;
+export ledger txNewThresholds: Map<Uint<64>, Uint<8>>;
+
+
+// ============================================================
+// WITNESS
+// ============================================================
+
+witness localSecret(): Bytes<32>;
+
+// ============================================================
+// PURE CIRCUITS
+// ============================================================
+
+export circuit deriveCommitment(secret: Bytes<32>): Bytes<32> {
+  return persistentHash<Vector<2, Bytes<32>>>([pad(32, "polypay:pk:"), secret]);
+}
+
+export circuit computeNullifier(secret: Bytes<32>, txIdPad: Bytes<32>): Bytes<32> {
+  return persistentHash<Vector<3, Bytes<32>>>([pad(32, "polypay:null:"), secret, txIdPad]);
+}
+
+// ============================================================
+// SETUP PHASE
+// ============================================================
+
+constructor(initialThreshold: Uint<8>) {
+  const secret = localSecret();
+  const commitment = deriveCommitment(secret);
+  owner = disclose(commitment);
+  threshold = disclose(initialThreshold);
+  finalized = disclose(false);
+  signers.insert(disclose(commitment));
+  signerCount.increment(1);
+}
+
+export circuit initSigner(commitment: Bytes<32>): [] {
+  assert(finalized == false, "Already finalized");
+  const secret = localSecret();
+  assert(deriveCommitment(secret) == owner, "Not owner");
+  signers.insert(disclose(commitment));
+  signerCount.increment(1);
+}
+
+export circuit finalize(): [] {
+  assert(finalized == false, "Already finalized");
+  const secret = localSecret();
+  assert(deriveCommitment(secret) == owner, "Not owner");
+  assert(signerCount.read() >= threshold, "Not enough signers");
+  finalized = disclose(true);
+  owner = disclose(pad(32, ""));
+}
+
+// ============================================================
+// TOKEN
+// ============================================================
+
+export circuit mint(amount: Uint<16>): [] {
+  assert(disclose(amount) > 0, "Amount must be positive");
+  const vaultAddr = pad(32, "polypay:vault:");
+  if (balances.member(disclose(vaultAddr))) {
+    const current = balances.lookup(disclose(vaultAddr));
+    balances.insert(disclose(vaultAddr), disclose((current + disclose(amount)) as Uint<64>));
+  } else {
+    balances.insert(disclose(vaultAddr), disclose(disclose(amount) as Uint<64>));
+  }
+  totalSupply.increment(disclose(amount));
+}
+
+// ============================================================
+// WITHDRAW (individual, no multisig)
+// ============================================================
+
+export circuit withdraw(to: Bytes<32>, amount: Uint<64>): [] {
+  assert(disclose(amount) > 0, "Amount must be positive");
+  const secret = localSecret();
+  const addr = deriveCommitment(secret);
+  assert(balances.member(disclose(addr)), "No balance");
+  const senderBal = balances.lookup(disclose(addr));
+  assert(senderBal >= disclose(amount), "Insufficient balance");
+  balances.insert(disclose(addr), disclose((senderBal - disclose(amount)) as Uint<64>));
+  if (balances.member(disclose(to))) {
+    const recipBal = balances.lookup(disclose(to));
+    balances.insert(disclose(to), disclose((recipBal + disclose(amount)) as Uint<64>));
+  } else {
+    balances.insert(disclose(to), disclose(disclose(amount) as Uint<64>));
+  }
+}
+
+// ============================================================
+// PROPOSE (signer-only, auto-approve)
+// ============================================================
+
+export circuit proposeTransfer(to: Bytes<32>, amount: Uint<64>): Uint<64> {
+  assert(finalized == true, "Not finalized");
+  const secret = localSecret();
+  const commitment = deriveCommitment(secret);
+  assert(signers.member(disclose(commitment)), "Not a signer");
+  txCounter.increment(1);
+  const txId = txCounter.read();
+  txTypes.insert(disclose(txId), disclose(0 as Uint<8>));
+  txStatuses.insert(disclose(txId), disclose(0 as Uint<8>));
+  txRecipients.insert(disclose(txId), disclose(to));
+  txAmounts.insert(disclose(txId), disclose(amount));
+  txApprovalCounts.insertDefault(disclose(txId));
+  txApprovalCounts.lookup(disclose(txId)).increment(1);
+  const txIdBytes = txId as Field as Bytes<32>;
+  const nullifier = computeNullifier(secret, txIdBytes);
+  txNullifiers.insert(disclose(nullifier));
+  return txId;
+}
+
+export circuit proposeAddSigner(newCommitment: Bytes<32>): Uint<64> {
+  assert(finalized == true, "Not finalized");
+  const secret = localSecret();
+  const commitment = deriveCommitment(secret);
+  assert(signers.member(disclose(commitment)), "Not a signer");
+  txCounter.increment(1);
+  const txId = txCounter.read();
+  txTypes.insert(disclose(txId), disclose(2 as Uint<8>));
+  txStatuses.insert(disclose(txId), disclose(0 as Uint<8>));
+  txTargetSigners.insert(disclose(txId), disclose(newCommitment));
+  txApprovalCounts.insertDefault(disclose(txId));
+  txApprovalCounts.lookup(disclose(txId)).increment(1);
+  const txIdBytes = txId as Field as Bytes<32>;
+  const nullifier = computeNullifier(secret, txIdBytes);
+  txNullifiers.insert(disclose(nullifier));
+  return txId;
+}
+
+export circuit proposeRemoveSigner(targetCommitment: Bytes<32>): Uint<64> {
+  assert(finalized == true, "Not finalized");
+  const secret = localSecret();
+  const commitment = deriveCommitment(secret);
+  assert(signers.member(disclose(commitment)), "Not a signer");
+  txCounter.increment(1);
+  const txId = txCounter.read();
+  txTypes.insert(disclose(txId), disclose(3 as Uint<8>));
+  txStatuses.insert(disclose(txId), disclose(0 as Uint<8>));
+  txTargetSigners.insert(disclose(txId), disclose(targetCommitment));
+  txApprovalCounts.insertDefault(disclose(txId));
+  txApprovalCounts.lookup(disclose(txId)).increment(1);
+  const txIdBytes = txId as Field as Bytes<32>;
+  const nullifier = computeNullifier(secret, txIdBytes);
+  txNullifiers.insert(disclose(nullifier));
+  return txId;
+}
+
+export circuit proposeSetThreshold(newThreshold: Uint<8>): Uint<64> {
+  assert(finalized == true, "Not finalized");
+  const secret = localSecret();
+  const commitment = deriveCommitment(secret);
+  assert(signers.member(disclose(commitment)), "Not a signer");
+  txCounter.increment(1);
+  const txId = txCounter.read();
+  txTypes.insert(disclose(txId), disclose(4 as Uint<8>));
+  txStatuses.insert(disclose(txId), disclose(0 as Uint<8>));
+  txNewThresholds.insert(disclose(txId), disclose(newThreshold));
+  txApprovalCounts.insertDefault(disclose(txId));
+  txApprovalCounts.lookup(disclose(txId)).increment(1);
+  const txIdBytes = txId as Field as Bytes<32>;
+  const nullifier = computeNullifier(secret, txIdBytes);
+  txNullifiers.insert(disclose(nullifier));
+  return txId;
+}
+
+// ============================================================
+// APPROVE (signer-only)
+// ============================================================
+
+export circuit approveTx(txId: Uint<64>): [] {
+  assert(finalized == true, "Not finalized");
+  const secret = localSecret();
+  const commitment = deriveCommitment(secret);
+  assert(signers.member(disclose(commitment)), "Not a signer");
+  assert(txStatuses.member(disclose(txId)), "Tx not found");
+  assert(txStatuses.lookup(disclose(txId)) == 0, "Tx not pending");
+  const txIdBytes = txId as Field as Bytes<32>;
+  const nullifier = computeNullifier(secret, txIdBytes);
+  assert(!txNullifiers.member(disclose(nullifier)), "Already approved");
+  txNullifiers.insert(disclose(nullifier));
+  txApprovalCounts.lookup(disclose(txId)).increment(1);
+}
+
+// ============================================================
+// EXECUTE (anyone, when threshold met)
+// ============================================================
+
+export circuit executeTransfer(txId: Uint<64>): [] {
+  assert(finalized == true, "Not finalized");
+  assert(txStatuses.member(disclose(txId)), "Tx not found");
+  assert(txStatuses.lookup(disclose(txId)) == 0, "Tx not pending");
+  assert(txTypes.member(disclose(txId)), "Tx type not found");
+  assert(txTypes.lookup(disclose(txId)) == 0, "Wrong tx type");
+  assert(txApprovalCounts.lookup(disclose(txId)).read() >= threshold, "Not enough approvals");
+  const to = txRecipients.lookup(disclose(txId));
+  const amount = txAmounts.lookup(disclose(txId));
+  const vaultAddr = pad(32, "polypay:vault:");
+  assert(balances.member(disclose(vaultAddr)), "Vault empty");
+  const vaultBal = balances.lookup(disclose(vaultAddr));
+  assert(vaultBal >= amount, "Insufficient vault balance");
+  balances.insert(disclose(vaultAddr), disclose((vaultBal - amount) as Uint<64>));
+  if (balances.member(to)) {
+    const recipBal = balances.lookup(to);
+    balances.insert(to, disclose((recipBal + amount) as Uint<64>));
+  } else {
+    balances.insert(to, amount);
+  }
+  txStatuses.insert(disclose(txId), disclose(1 as Uint<8>));
+}
+
+export circuit executeAddSigner(txId: Uint<64>): [] {
+  assert(finalized == true, "Not finalized");
+  assert(txStatuses.member(disclose(txId)), "Tx not found");
+  assert(txStatuses.lookup(disclose(txId)) == 0, "Tx not pending");
+  assert(txTypes.member(disclose(txId)), "Tx type not found");
+  assert(txTypes.lookup(disclose(txId)) == 2, "Wrong tx type");
+  assert(txApprovalCounts.lookup(disclose(txId)).read() >= threshold, "Not enough approvals");
+  assert(txTargetSigners.member(disclose(txId)), "Target signer not found");
+  const newCommitment = txTargetSigners.lookup(disclose(txId));
+  assert(!signers.member(disclose(newCommitment)), "Signer already exists");
+  signers.insert(disclose(newCommitment));
+  signerCount.increment(1);
+  txStatuses.insert(disclose(txId), disclose(1 as Uint<8>));
+}
+
+export circuit executeRemoveSigner(txId: Uint<64>): [] {
+  assert(finalized == true, "Not finalized");
+  assert(txStatuses.member(disclose(txId)), "Tx not found");
+  assert(txStatuses.lookup(disclose(txId)) == 0, "Tx not pending");
+  assert(txTypes.member(disclose(txId)), "Tx type not found");
+  assert(txTypes.lookup(disclose(txId)) == 3, "Wrong tx type");
+  assert(txApprovalCounts.lookup(disclose(txId)).read() >= threshold, "Not enough approvals");
+  assert(txTargetSigners.member(disclose(txId)), "Target signer not found");
+  const targetCommitment = txTargetSigners.lookup(disclose(txId));
+  assert(signers.member(disclose(targetCommitment)), "Signer not found");
+  signers.remove(disclose(targetCommitment));
+  signerCount.decrement(1);
+  assert(signerCount.read() >= threshold, "Would drop below threshold");
+  txStatuses.insert(disclose(txId), disclose(1 as Uint<8>));
+}
+
+
+export circuit executeSetThreshold(txId: Uint<64>): [] {
+  assert(finalized == true, "Not finalized");
+  assert(txStatuses.member(disclose(txId)), "Tx not found");
+  assert(txStatuses.lookup(disclose(txId)) == 0, "Tx not pending");
+  assert(txTypes.member(disclose(txId)), "Tx type not found");
+  assert(txTypes.lookup(disclose(txId)) == 4, "Wrong tx type");
+  assert(txApprovalCounts.lookup(disclose(txId)).read() >= threshold, "Not enough approvals");
+  assert(txNewThresholds.member(disclose(txId)), "New threshold not found");
+  const newVal = txNewThresholds.lookup(disclose(txId));
+  assert(signerCount.read() >= newVal, "Threshold exceeds signer count");
+  threshold = disclose(newVal);
+  txStatuses.insert(disclose(txId), disclose(1 as Uint<8>));
+}
+
