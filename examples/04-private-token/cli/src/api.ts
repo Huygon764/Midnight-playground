@@ -119,13 +119,20 @@ export const joinContract = async (
   providers: TokenProviders,
   contractAddress: string,
   secretKey: Uint8Array,
+  timeoutMs = 120_000,
 ): Promise<DeployedTokenContract> => {
-  return await findDeployedContract(providers, {
-    contractAddress,
-    compiledContract,
-    privateStateId: "tokenPrivateState",
-    initialPrivateState: { secretKey },
-  });
+  const result = await Promise.race([
+    findDeployedContract(providers, {
+      contractAddress,
+      compiledContract,
+      privateStateId: "tokenPrivateState",
+      initialPrivateState: { secretKey },
+    }),
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error(`Join timed out after ${timeoutMs / 1000}s — check that the contract address is correct`)), timeoutMs),
+    ),
+  ]);
+  return result;
 };
 
 export const mint = async (
@@ -147,18 +154,19 @@ export const transfer = async (
 };
 
 export const getBalance = async (
-  contract: DeployedTokenContract,
+  providers: TokenProviders,
+  contractAddress: ContractAddress,
   addr: Uint8Array,
 ): Promise<bigint> => {
-  const result = await contract.callTx.getBalance(addr);
-  return result.public.txData;
+  return getOnChainBalance(providers, contractAddress, addr);
 };
 
 export const getTotalSupply = async (
-  contract: DeployedTokenContract,
+  providers: TokenProviders,
+  contractAddress: ContractAddress,
 ): Promise<bigint> => {
-  const result = await contract.callTx.getTotalSupply();
-  return result.public.txData;
+  const state = await getTokenState(providers, contractAddress);
+  return state?.totalSupply ?? 0n;
 };
 
 const signTransactionIntents = (

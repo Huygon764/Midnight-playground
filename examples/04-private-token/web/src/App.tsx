@@ -1,58 +1,254 @@
-"use client";
+import { useState, useEffect, useCallback } from "react";
+import { type TokenDerivedState, TokenAPI, type DeployedTokenAPI } from "../../api/src/index.js";
+import { getProviders } from "./providers.js";
+import { toHex, fromHex } from "@midnight-ntwrk/midnight-js-utils";
 
-import { useState } from "react";
-
-type WalletState = {
-  connected: boolean;
-  address?: string;
-};
-
+type AppStatus = "disconnected" | "connecting" | "connected" | "deploying" | "ready" | "error";
 type Tab = "mint" | "transfer" | "balance";
 
-function ConnectWallet({
-  onConnect,
-}: {
-  onConnect: (address: string) => void;
-}) {
-  const [error, setError] = useState<string | null>(null);
+function formatError(e: unknown): string {
+  if (!(e instanceof Error)) return String(e);
+  const cause = (e as any).cause;
+  if (cause instanceof Error) return `${e.message}: ${cause.message}`;
+  return e.message;
+}
 
-  const connect = async () => {
-    try {
-      setError(null);
-      const midnight = (window as any).midnight;
-      if (!midnight?.mnLace) {
-        setError("Lace wallet extension not found. Please install it.");
-        return;
-      }
-      const api = await midnight.mnLace.connect("preprod");
-      const addresses = await api.getShieldedAddresses();
-      if (addresses.length > 0) {
-        onConnect(addresses[0]);
-      }
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Connection failed");
-    }
-  };
-
+function Spinner({ message }: { message: string }) {
   return (
     <div className="card">
-      <h2>Connect Wallet</h2>
-      <button onClick={connect}>Connect Lace Wallet</button>
-      {error && <div className="status error">{error}</div>}
+      <div className="spinner-row">
+        <div className="spinner" />
+        <span>{message}</span>
+      </div>
     </div>
   );
 }
 
-function MintPage() {
+export default function App() {
+  const [status, setStatus] = useState<AppStatus>("disconnected");
+  const [error, setError] = useState<string>("");
+  const [api, setApi] = useState<DeployedTokenAPI | null>(null);
+  const [tokenState, setTokenState] = useState<TokenDerivedState | null>(null);
+  const [contractAddress, setContractAddress] = useState("");
+  const [joinAddress, setJoinAddress] = useState("");
+  const [tokenName, setTokenName] = useState("MyToken");
+  const [activeTab, setActiveTab] = useState<Tab>("mint");
+  const [isWorking, setIsWorking] = useState(false);
+  const [workingMessage, setWorkingMessage] = useState("");
+  const [txStatus, setTxStatus] = useState("");
+
+  useEffect(() => {
+    if (!api) return;
+    const sub = api.state$.subscribe({
+      next: (state) => setTokenState(state),
+      error: (err) => setError(err.message),
+    });
+    return () => sub.unsubscribe();
+  }, [api]);
+
+  const connectAndDeploy = useCallback(async () => {
+    if (!tokenName.trim()) return;
+    try {
+      setStatus("connecting");
+      setError("");
+      const providers = await getProviders();
+      setStatus("deploying");
+      const tokenApi = await TokenAPI.deploy(providers, tokenName.trim());
+      setApi(tokenApi);
+      setContractAddress(tokenApi.deployedContractAddress);
+      setStatus("ready");
+    } catch (e) {
+      console.error("Deploy failed:", e);
+      setError(formatError(e));
+      setStatus("error");
+    }
+  }, [tokenName]);
+
+  const connectAndJoin = useCallback(async () => {
+    if (!joinAddress.trim()) return;
+    try {
+      setStatus("connecting");
+      setError("");
+      const providers = await getProviders();
+      setStatus("deploying");
+      const tokenApi = await TokenAPI.join(providers, joinAddress.trim());
+      setApi(tokenApi);
+      setContractAddress(tokenApi.deployedContractAddress);
+      setStatus("ready");
+    } catch (e) {
+      console.error("Join failed:", e);
+      setError(formatError(e));
+      setStatus("error");
+    }
+  }, [joinAddress]);
+
+  if (status === "disconnected" || status === "error") {
+    return (
+      <LandingPage
+        status={status}
+        error={error}
+        tokenName={tokenName}
+        joinAddress={joinAddress}
+        onTokenNameChange={setTokenName}
+        onJoinAddressChange={setJoinAddress}
+        onDeploy={connectAndDeploy}
+        onJoin={connectAndJoin}
+      />
+    );
+  }
+
+  if (status === "connecting" || status === "deploying") {
+    return (
+      <div>
+        <h1>Private Token</h1>
+        <Spinner message={status === "connecting" ? "Connecting to Lace wallet..." : "Deploying contract (this may take a minute)..."} />
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <h1>Private Token</h1>
+      <div className="status connected">Contract: {contractAddress}</div>
+
+      {tokenState && <TokenPanel state={tokenState} />}
+
+      {isWorking && <Spinner message={workingMessage} />}
+
+      {!isWorking && (
+        <>
+          <div className="tabs">
+            <div className={`tab ${activeTab === "mint" ? "active" : ""}`} onClick={() => setActiveTab("mint")}>
+              Mint
+            </div>
+            <div className={`tab ${activeTab === "transfer" ? "active" : ""}`} onClick={() => setActiveTab("transfer")}>
+              Transfer
+            </div>
+            <div className={`tab ${activeTab === "balance" ? "active" : ""}`} onClick={() => setActiveTab("balance")}>
+              Balance
+            </div>
+          </div>
+
+          {activeTab === "mint" && (
+            <MintCard
+              api={api!}
+              disabled={isWorking}
+              onWorking={(msg) => { setIsWorking(true); setWorkingMessage(msg); setTxStatus(""); }}
+              onDone={(msg) => { setIsWorking(false); setWorkingMessage(""); setTxStatus(msg); }}
+            />
+          )}
+          {activeTab === "transfer" && (
+            <TransferCard
+              api={api!}
+              disabled={isWorking}
+              onWorking={(msg) => { setIsWorking(true); setWorkingMessage(msg); setTxStatus(""); }}
+              onDone={(msg) => { setIsWorking(false); setWorkingMessage(""); setTxStatus(msg); }}
+            />
+          )}
+          {activeTab === "balance" && <BalanceCard api={api!} />}
+        </>
+      )}
+
+      {txStatus && (
+        <div className="card">
+          <div className={`status ${txStatus.startsWith("Failed") ? "error" : "connected"}`}>
+            {txStatus}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function LandingPage({
+  status,
+  error,
+  tokenName,
+  joinAddress,
+  onTokenNameChange,
+  onJoinAddressChange,
+  onDeploy,
+  onJoin,
+}: {
+  status: AppStatus;
+  error: string;
+  tokenName: string;
+  joinAddress: string;
+  onTokenNameChange: (v: string) => void;
+  onJoinAddressChange: (v: string) => void;
+  onDeploy: () => void;
+  onJoin: () => void;
+}) {
+  return (
+    <div>
+      <h1>Private Token</h1>
+      <p>A token contract on Midnight using Map ADT for balances and identity-based transfers via secret key witnesses.</p>
+
+      <div className="card">
+        <h2>Deploy New Token</h2>
+        <label>Token name</label>
+        <input
+          placeholder="MyToken"
+          value={tokenName}
+          onChange={(e) => onTokenNameChange(e.target.value)}
+        />
+        <button onClick={onDeploy} disabled={!tokenName.trim()}>Connect Wallet & Deploy</button>
+      </div>
+
+      <div className="card">
+        <h2>Join Existing Token</h2>
+        <input
+          placeholder="Contract address (hex)"
+          value={joinAddress}
+          onChange={(e) => onJoinAddressChange(e.target.value)}
+        />
+        <button onClick={onJoin} disabled={!joinAddress.trim()}>Connect Wallet & Join</button>
+      </div>
+
+      {error && <div className="card"><div className="status error">{error}</div></div>}
+    </div>
+  );
+}
+
+function TokenPanel({ state }: { state: TokenDerivedState }) {
+  return (
+    <div className="supply-box">
+      <div style={{ marginBottom: "0.5rem", color: "#a0a0a0" }}>
+        {state.tokenName} - Total Supply
+      </div>
+      <div className="count">{Number(state.totalSupply).toLocaleString()}</div>
+      <div style={{ marginTop: "0.5rem", color: "#a0a0a0", fontSize: "0.8rem", wordBreak: "break-all" }}>
+        Owner: {toHex(state.owner)}
+      </div>
+    </div>
+  );
+}
+
+function MintCard({
+  api,
+  disabled,
+  onWorking,
+  onDone,
+}: {
+  api: DeployedTokenAPI;
+  disabled: boolean;
+  onWorking: (msg: string) => void;
+  onDone: (msg: string) => void;
+}) {
   const [toAddress, setToAddress] = useState("");
   const [amount, setAmount] = useState("");
-  const [status, setStatus] = useState("");
 
-  const mint = () => {
+  const mint = useCallback(async () => {
     if (!toAddress || !amount) return;
-    setStatus(`Mint submitted: ${amount} tokens to ${toAddress.substring(0, 16)}...`);
-    // In production, this would call contract.callTx.mint(to, amount)
-  };
+    onWorking(`Minting ${amount} tokens (generating ZK proof + submitting tx)...`);
+    try {
+      await api.mint(fromHex(toAddress), BigInt(amount));
+      onDone(`Minted ${amount} tokens to ${toAddress.substring(0, 16)}...`);
+    } catch (e) {
+      console.error("Mint failed:", e);
+      onDone(`Failed: ${formatError(e)}`);
+    }
+  }, [api, toAddress, amount, onWorking, onDone]);
 
   return (
     <div className="card">
@@ -70,24 +266,38 @@ function MintPage() {
         value={amount}
         onChange={(e) => setAmount(e.target.value)}
       />
-      <button onClick={mint} disabled={!toAddress || !amount}>
+      <button onClick={mint} disabled={disabled || !toAddress || !amount}>
         Mint
       </button>
-      {status && <div className="status connected">{status}</div>}
     </div>
   );
 }
 
-function TransferPage() {
+function TransferCard({
+  api,
+  disabled,
+  onWorking,
+  onDone,
+}: {
+  api: DeployedTokenAPI;
+  disabled: boolean;
+  onWorking: (msg: string) => void;
+  onDone: (msg: string) => void;
+}) {
   const [toAddress, setToAddress] = useState("");
   const [amount, setAmount] = useState("");
-  const [status, setStatus] = useState("");
 
-  const transfer = () => {
+  const transfer = useCallback(async () => {
     if (!toAddress || !amount) return;
-    setStatus(`Transfer submitted: ${amount} tokens to ${toAddress.substring(0, 16)}...`);
-    // In production, this would call contract.callTx.transfer(to, amount)
-  };
+    onWorking(`Transferring ${amount} tokens (generating ZK proof + submitting tx)...`);
+    try {
+      await api.transfer(fromHex(toAddress), BigInt(amount));
+      onDone(`Transferred ${amount} tokens to ${toAddress.substring(0, 16)}...`);
+    } catch (e) {
+      console.error("Transfer failed:", e);
+      onDone(`Failed: ${formatError(e)}`);
+    }
+  }, [api, toAddress, amount, onWorking, onDone]);
 
   return (
     <div className="card">
@@ -108,111 +318,43 @@ function TransferPage() {
         value={amount}
         onChange={(e) => setAmount(e.target.value)}
       />
-      <button onClick={transfer} disabled={!toAddress || !amount}>
+      <button onClick={transfer} disabled={disabled || !toAddress || !amount}>
         Transfer
       </button>
-      {status && <div className="status connected">{status}</div>}
     </div>
   );
 }
 
-function BalancePage() {
-  const [address, setAddress] = useState("");
-  const [balance, setBalance] = useState<string | null>(null);
+function BalanceCard({ api }: { api: DeployedTokenAPI }) {
+  const [ownAddress, setOwnAddress] = useState<string>("");
+  const [loading, setLoading] = useState(false);
 
-  const checkBalance = () => {
-    if (!address) return;
-    // In production, this would query the on-chain state
-    setBalance("0");
-  };
+  const deriveOwnAddress = useCallback(async () => {
+    setLoading(true);
+    try {
+      const addr = await api.deriveAddress();
+      setOwnAddress(toHex(addr));
+    } catch (e) {
+      console.error("deriveAddress failed:", e);
+      setOwnAddress(`Error: ${formatError(e)}`);
+    } finally {
+      setLoading(false);
+    }
+  }, [api]);
 
   return (
     <div className="card">
-      <h2>Check Balance</h2>
-      <label>Address (hex)</label>
-      <input
-        placeholder="0x..."
-        value={address}
-        onChange={(e) => setAddress(e.target.value)}
-      />
-      <button onClick={checkBalance} disabled={!address}>
-        Check
-      </button>
-      {balance !== null && (
-        <div className="status info">Balance: {balance}</div>
-      )}
-    </div>
-  );
-}
-
-function TotalSupplyDisplay({
-  totalSupply,
-  tokenName,
-}: {
-  totalSupply: number;
-  tokenName: string;
-}) {
-  return (
-    <div className="supply-box">
-      <div style={{ marginBottom: "0.5rem", color: "#a0a0a0" }}>
-        {tokenName} - Total Supply
-      </div>
-      <div className="count">{totalSupply.toLocaleString()}</div>
-    </div>
-  );
-}
-
-export default function App() {
-  const [wallet, setWallet] = useState<WalletState>({ connected: false });
-  const [activeTab, setActiveTab] = useState<Tab>("mint");
-  const [totalSupply] = useState(0);
-  const [tokenName] = useState("PrivateToken");
-
-  return (
-    <div>
-      <h1>Private Token</h1>
-      <p>
-        A token contract on Midnight using Map ADT for balances and identity-based
-        transfers via secret key witnesses.
+      <h2>My Address</h2>
+      <p style={{ color: "#888", marginBottom: "0.5rem" }}>
+        Derive your token address from your secret key. Share this address to receive tokens.
       </p>
-
-      {!wallet.connected ? (
-        <ConnectWallet
-          onConnect={(addr) => setWallet({ connected: true, address: addr })}
-        />
-      ) : (
-        <>
-          <div className="status connected">
-            Connected: {wallet.address?.substring(0, 20)}...
-          </div>
-
-          <TotalSupplyDisplay totalSupply={totalSupply} tokenName={tokenName} />
-
-          <div className="tabs">
-            <div
-              className={`tab ${activeTab === "mint" ? "active" : ""}`}
-              onClick={() => setActiveTab("mint")}
-            >
-              Mint (Admin)
-            </div>
-            <div
-              className={`tab ${activeTab === "transfer" ? "active" : ""}`}
-              onClick={() => setActiveTab("transfer")}
-            >
-              Transfer
-            </div>
-            <div
-              className={`tab ${activeTab === "balance" ? "active" : ""}`}
-              onClick={() => setActiveTab("balance")}
-            >
-              Balance
-            </div>
-          </div>
-
-          {activeTab === "mint" && <MintPage />}
-          {activeTab === "transfer" && <TransferPage />}
-          {activeTab === "balance" && <BalancePage />}
-        </>
+      <button onClick={deriveOwnAddress} disabled={loading}>
+        {loading ? "Deriving..." : "Show My Address"}
+      </button>
+      {ownAddress && (
+        <div className="status info" style={{ marginTop: "0.5rem", wordBreak: "break-all" }}>
+          {ownAddress}
+        </div>
       )}
     </div>
   );

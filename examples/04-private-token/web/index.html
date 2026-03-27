@@ -24,6 +24,9 @@
       .tab { background: #2a2a3e; border: 1px solid #444; padding: 0.5rem 1rem; border-radius: 4px 4px 0 0; cursor: pointer; color: #e0e0e0; }
       .tab.active { background: #8b5cf6; border-color: #8b5cf6; color: white; }
       label { display: block; margin: 0.5rem 0 0.25rem; color: #a0a0a0; font-size: 0.9rem; }
+      .spinner-row { display: flex; align-items: center; gap: 0.75rem; }
+      .spinner { width: 20px; height: 20px; border: 3px solid #333; border-top-color: #8b5cf6; border-radius: 50%; animation: spin 0.8s linear infinite; }
+      @keyframes spin { to { transform: rotate(360deg); } }
     </style>
   </head>
   <body>
