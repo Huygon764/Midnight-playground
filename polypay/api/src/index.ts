@@ -40,13 +40,11 @@ export interface DeployedPolyPayAPI {
   executeRemoveSigner: (txId: bigint) => Promise<void>;
   executeSetThreshold: (txId: bigint) => Promise<void>;
 
-  // Individual
-  withdraw: (to: Uint8Array, amount: bigint) => Promise<void>;
-
   // Read
   deriveCommitment: () => Promise<Uint8Array>;
   getSecret: () => Promise<Uint8Array>;
   getTransactionList: () => Promise<TransactionInfo[]>;
+  getSignerList: () => Promise<Uint8Array[]>;
 }
 
 export class PolyPayAPI implements DeployedPolyPayAPI {
@@ -143,12 +141,6 @@ export class PolyPayAPI implements DeployedPolyPayAPI {
     await this.deployedContract.callTx.executeSetThreshold(txId);
   }
 
-  // Individual
-  async withdraw(to: Uint8Array, amount: bigint): Promise<void> {
-    this.logger?.info("withdraw");
-    await this.deployedContract.callTx.withdraw(to, amount);
-  }
-
   // Read
   async deriveCommitment(): Promise<Uint8Array> {
     const ps = await PolyPayAPI.getPrivateState(this.providers);
@@ -177,6 +169,17 @@ export class PolyPayAPI implements DeployedPolyPayAPI {
       }
     }
     return txs;
+  }
+
+  async getSignerList(): Promise<Uint8Array[]> {
+    const contractState = await this.providers.publicDataProvider.queryContractState(this.deployedContractAddress);
+    if (!contractState) return [];
+    const l = PolyPay.ledger(contractState.data);
+    const signers: Uint8Array[] = [];
+    for (const s of l.signers) {
+      signers.push(s);
+    }
+    return signers;
   }
 
   // Deploy & Join

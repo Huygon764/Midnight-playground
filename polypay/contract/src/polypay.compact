@@ -96,25 +96,6 @@ export circuit mint(amount: Uint<16>): [] {
   totalSupply.increment(disclose(amount));
 }
 
-// ============================================================
-// WITHDRAW (individual, no multisig)
-// ============================================================
-
-export circuit withdraw(to: Bytes<32>, amount: Uint<64>): [] {
-  assert(disclose(amount) > 0, "Amount must be positive");
-  const secret = localSecret();
-  const addr = deriveCommitment(secret);
-  assert(balances.member(disclose(addr)), "No balance");
-  const senderBal = balances.lookup(disclose(addr));
-  assert(senderBal >= disclose(amount), "Insufficient balance");
-  balances.insert(disclose(addr), disclose((senderBal - disclose(amount)) as Uint<64>));
-  if (balances.member(disclose(to))) {
-    const recipBal = balances.lookup(disclose(to));
-    balances.insert(disclose(to), disclose((recipBal + disclose(amount)) as Uint<64>));
-  } else {
-    balances.insert(disclose(to), disclose(disclose(amount) as Uint<64>));
-  }
-}
 
 // ============================================================
 // PROPOSE (signer-only, auto-approve)
@@ -217,6 +198,9 @@ export circuit approveTx(txId: Uint<64>): [] {
 
 export circuit executeTransfer(txId: Uint<64>): [] {
   assert(finalized == true, "Not finalized");
+  const secret = localSecret();
+  const commitment = deriveCommitment(secret);
+  assert(signers.member(disclose(commitment)), "Not a signer");
   assert(txStatuses.member(disclose(txId)), "Tx not found");
   assert(txStatuses.lookup(disclose(txId)) == 0, "Tx not pending");
   assert(txTypes.member(disclose(txId)), "Tx type not found");
@@ -240,6 +224,9 @@ export circuit executeTransfer(txId: Uint<64>): [] {
 
 export circuit executeAddSigner(txId: Uint<64>): [] {
   assert(finalized == true, "Not finalized");
+  const secret = localSecret();
+  const commitment = deriveCommitment(secret);
+  assert(signers.member(disclose(commitment)), "Not a signer");
   assert(txStatuses.member(disclose(txId)), "Tx not found");
   assert(txStatuses.lookup(disclose(txId)) == 0, "Tx not pending");
   assert(txTypes.member(disclose(txId)), "Tx type not found");
@@ -255,6 +242,9 @@ export circuit executeAddSigner(txId: Uint<64>): [] {
 
 export circuit executeRemoveSigner(txId: Uint<64>): [] {
   assert(finalized == true, "Not finalized");
+  const secret = localSecret();
+  const commitment = deriveCommitment(secret);
+  assert(signers.member(disclose(commitment)), "Not a signer");
   assert(txStatuses.member(disclose(txId)), "Tx not found");
   assert(txStatuses.lookup(disclose(txId)) == 0, "Tx not pending");
   assert(txTypes.member(disclose(txId)), "Tx type not found");
@@ -269,9 +259,11 @@ export circuit executeRemoveSigner(txId: Uint<64>): [] {
   txStatuses.insert(disclose(txId), disclose(1 as Uint<8>));
 }
 
-
 export circuit executeSetThreshold(txId: Uint<64>): [] {
   assert(finalized == true, "Not finalized");
+  const secret = localSecret();
+  const commitment = deriveCommitment(secret);
+  assert(signers.member(disclose(commitment)), "Not a signer");
   assert(txStatuses.member(disclose(txId)), "Tx not found");
   assert(txStatuses.lookup(disclose(txId)) == 0, "Tx not pending");
   assert(txTypes.member(disclose(txId)), "Tx type not found");

@@ -5,40 +5,53 @@ A privacy-preserving multisig wallet built on the Midnight blockchain. Signers a
 ## Features
 
 - **Private signer identity** — signers prove membership via ZK proofs, not public keys
-- **Multisig proposals** — propose transfers, batch payments, signer changes, threshold updates
+- **Multisig proposals** — propose transfers, signer changes, threshold updates
 - **Anti double-approve** — nullifier pattern prevents same signer approving twice
-- **Batch transfers** — up to 10 recipients in a single proposal
-- **Individual withdraw** — personal balance management outside multisig
+- **Signer-only execute** — only registered signers can execute approved transactions
 - **Web UI** — React + Vite with Lace wallet DApp Connector
 
 ## Architecture
 
 ```
 polypay/
-├── contract/   Compact smart contract (17 circuits)
+├── contract/   Compact smart contract (12 circuits)
 ├── api/        Shared PolyPayAPI class
 ├── web/        React + Vite + Lace DApp Connector
-└── test/       (planned)
+└── docs/       ADRs and design specs
 ```
 
-## Contract Circuits
+## Contract Circuits (12)
 
 **Setup:** constructor, initSigner, finalize
-**Token:** mint, withdraw
-**Propose:** proposeTransfer, proposeBatch, proposeAddSigner, proposeRemoveSigner, proposeSetThreshold
+**Token:** mint
+**Propose:** proposeTransfer, proposeAddSigner, proposeRemoveSigner, proposeSetThreshold
 **Approve:** approveTx
-**Execute:** executeTransfer, executeBatch, executeAddSigner, executeRemoveSigner, executeSetThreshold
+**Execute:** executeTransfer, executeAddSigner, executeRemoveSigner, executeSetThreshold
 **Pure:** deriveCommitment, computeNullifier
 
-## How It Works
+## Flow
 
-1. **Deployer** creates contract with a threshold (e.g. 2-of-3)
-2. **Deployer** adds signer commitments, then finalizes
-3. **Anyone** can mint tokens into the vault
-4. **Signers** propose transactions (auto-approve as proposer)
-5. **Other signers** approve until threshold met
-6. **Anyone** executes approved transactions
-7. **Individuals** can withdraw from personal balances
+```
+SETUP PHASE
+  1. Deploy(threshold)     — creates contract, deployer = first signer
+  2. initSigner(commitment) — owner adds other signers (repeat)
+  3. finalize()            — locks contract, clears owner
+
+OPERATIONAL PHASE
+  4. mint(amount)          — add tokens to vault (no auth needed)
+  5. propose*(...)         — signer creates proposal, auto-approves (count=1)
+  6. approveTx(txId)       — other signers approve (nullifier prevents double-vote)
+  7. execute*(txId)        — signer executes when approvals >= threshold
+```
+
+## Transaction Types
+
+| Type | Propose | Execute | Description |
+|------|---------|---------|-------------|
+| 0 | proposeTransfer(to, amount) | executeTransfer(txId) | Transfer from vault to recipient |
+| 2 | proposeAddSigner(commitment) | executeAddSigner(txId) | Add new signer |
+| 3 | proposeRemoveSigner(commitment) | executeRemoveSigner(txId) | Remove signer (keeps count >= threshold) |
+| 4 | proposeSetThreshold(value) | executeSetThreshold(txId) | Change approval threshold |
 
 ## Prerequisites
 
@@ -75,12 +88,13 @@ Open http://localhost:5173 in a browser with Lace wallet installed.
 
 ## Limitations
 
+- Deploy limited to 12 circuits max (Midnight tx size constraint)
 - Mint is public (testnet design) — max 65535 per call
-- Secret key stored in browser memory only — lost on refresh
+- Secret stored in localStorage — lost if cleared
 - No off-chain coordination — signers share commitments manually
 - No time-locks or expiration on proposals
 - Balances are public on ledger (Map)
 
-## Spec
+## Known Issues
 
-Full design spec at `docs/superpowers/specs/2026-03-27-polypay-design.md`
+See `docs/adr/` for architectural decisions and workarounds.

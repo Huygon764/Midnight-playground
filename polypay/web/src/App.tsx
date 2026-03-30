@@ -5,14 +5,29 @@ import { getProviders } from "./providers.js";
 import { toHex } from "@midnight-ntwrk/midnight-js-utils";
 
 type Phase = "connect" | "connecting" | "setup" | "init-signers" | "dashboard" | "error";
-type Tab = "mint" | "propose-transfer" | "propose-signer" | "transactions" | "withdraw";
+type Tab = "mint" | "propose-transfer" | "propose-signer" | "transactions";
 
 const STORAGE_KEY = "polypay:secret";
 
 function formatError(e: unknown): string {
+  console.error("[formatError] Full error object:", e);
   if (!(e instanceof Error)) return String(e);
+  // CallTxFailedError from SDK has finalizedTxData with status details
+  const finalizedTxData = (e as any).finalizedTxData;
+  if (finalizedTxData) {
+    console.error("[formatError] finalizedTxData:", JSON.stringify(finalizedTxData, null, 2));
+    return `${e.constructor.name}: status=${finalizedTxData.status ?? "unknown"}`;
+  }
   const cause = (e as any).cause;
-  if (cause instanceof Error) return `${e.message}: ${cause.message}`;
+  if (cause instanceof Error) {
+    console.error("[formatError] cause:", cause);
+    const causeFinalizedTxData = (cause as any).finalizedTxData;
+    if (causeFinalizedTxData) {
+      console.error("[formatError] cause.finalizedTxData:", JSON.stringify(causeFinalizedTxData, null, 2));
+      return `${e.message}: ${cause.constructor.name} status=${causeFinalizedTxData.status ?? "unknown"}`;
+    }
+    return `${e.message}: ${cause.message}`;
+  }
   return e.message;
 }
 
@@ -115,6 +130,10 @@ export default function App() {
     setTxStatus("");
     try {
       const providers = await getProviders();
+      const saved = loadSecret();
+      if (saved) {
+        await providers.privateStateProvider.set("polyPayPrivateState" as any, createPolyPayPrivateState(saved) as any);
+      }
       const payApi = await PolyPayAPI.deploy(providers, BigInt(threshold));
       setApi(payApi);
       setContractAddress(payApi.deployedContractAddress);
@@ -269,6 +288,8 @@ export default function App() {
           </div>
         )}
 
+        <SignerListCard api={api!} myCommitment={myCommitment} />
+
         <div className="card">
           <h2>Add Signer</h2>
           <p>Add signer commitments one by one. Deployer is already added.</p>
@@ -307,7 +328,7 @@ export default function App() {
       {!isWorking && (
         <>
           <div className="tabs">
-            {(["mint", "propose-transfer", "propose-signer", "transactions", "withdraw"] as Tab[]).map((t) => (
+            {(["mint", "propose-transfer", "propose-signer", "transactions"] as Tab[]).map((t) => (
               <div key={t} className={`tab ${tab === t ? "active" : ""}`} onClick={() => { setTab(t); setTxStatus(""); }}>
                 {t === "propose-transfer" ? "Transfer" : t === "propose-signer" ? "Signers" : t.charAt(0).toUpperCase() + t.slice(1)}
               </div>
@@ -316,13 +337,48 @@ export default function App() {
 
           {tab === "mint" && <MintTab api={api!} doAction={doAction} />}
           {tab === "propose-transfer" && <ProposeTransferTab api={api!} doAction={doAction} />}
-          {tab === "propose-signer" && <ProposeSignerTab api={api!} doAction={doAction} />}
+          {tab === "propose-signer" && <ProposeSignerTab api={api!} doAction={doAction} myCommitment={myCommitment} />}
           {tab === "transactions" && <TransactionsTab api={api!} doAction={doAction} />}
-          {tab === "withdraw" && <WithdrawTab api={api!} doAction={doAction} />}
         </>
       )}
 
       {txStatus && <div className="card"><div className={`status ${txStatus.includes("ailed") ? "error" : "connected"}`}><pre>{txStatus}</pre></div></div>}
+    </div>
+  );
+}
+
+function SignerListCard({ api, myCommitment }: { api: DeployedPolyPayAPI; myCommitment: string }) {
+  const [signers, setSigners] = useState<string[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    try {
+      const list = await api.getSignerList();
+      setSigners(list.map((s) => toHex(s)));
+    } catch (e) {
+      console.error("Failed to load signers:", e);
+    } finally {
+      setLoading(false);
+    }
+  }, [api]);
+
+  useEffect(() => { refresh(); }, [refresh]);
+
+  return (
+    <div className="card">
+      <h2>Registered Signers</h2>
+      <button className="secondary" onClick={refresh} disabled={loading}>{loading ? "Loading..." : "Refresh"}</button>
+      {signers.length > 0 && (
+        <div style={{ marginTop: "0.5rem" }}>
+          {signers.map((s, i) => (
+            <div key={i} className="mono" style={{ fontSize: "0.75rem", padding: "0.25rem 0", color: s === myCommitment ? "#16a34a" : "#ccc" }}>
+              {s}{s === myCommitment ? " (you)" : ""}
+            </div>
+          ))}
+        </div>
+      )}
+      {signers.length === 0 && !loading && <p>No signers.</p>}
     </div>
   );
 }
@@ -372,20 +428,23 @@ function ProposeTransferTab({ api, doAction }: { api: DeployedPolyPayAPI; doActi
   );
 }
 
-function ProposeSignerTab({ api, doAction }: { api: DeployedPolyPayAPI; doAction: (l: string, fn: () => Promise<void>) => Promise<void> }) {
+function ProposeSignerTab({ api, doAction, myCommitment }: { api: DeployedPolyPayAPI; doAction: (l: string, fn: () => Promise<void>) => Promise<void>; myCommitment: string }) {
   const [commitment, setCommitment] = useState("");
   const [newThreshold, setNewThreshold] = useState("");
   return (
-    <div className="card">
-      <h2>Signer Management</h2>
-      <label>Add Signer (commitment hex)</label>
-      <input placeholder="Commitment" value={commitment} onChange={(e) => setCommitment(e.target.value)} />
-      <button onClick={() => { doAction("Propose Add Signer", () => api.proposeAddSigner(hexToBytes(commitment))); setCommitment(""); }} disabled={!commitment}>Propose Add</button>
-      <button className="danger" onClick={() => { doAction("Propose Remove Signer", () => api.proposeRemoveSigner(hexToBytes(commitment))); setCommitment(""); }} disabled={!commitment}>Propose Remove</button>
-      <label style={{ marginTop: "1rem" }}>Set Threshold</label>
-      <input type="number" placeholder="New threshold" value={newThreshold} onChange={(e) => setNewThreshold(e.target.value)} min="1" max="10" />
-      <button onClick={() => doAction("Propose Set Threshold", () => api.proposeSetThreshold(BigInt(newThreshold)))} disabled={!newThreshold}>Propose Threshold</button>
-    </div>
+    <>
+      <SignerListCard api={api} myCommitment={myCommitment} />
+      <div className="card">
+        <h2>Propose Changes</h2>
+        <label>Signer commitment (hex)</label>
+        <input placeholder="Commitment" value={commitment} onChange={(e) => setCommitment(e.target.value)} />
+        <button onClick={() => { doAction("Propose Add Signer", () => api.proposeAddSigner(hexToBytes(commitment))); setCommitment(""); }} disabled={!commitment}>Propose Add</button>
+        <button className="danger" onClick={() => { doAction("Propose Remove Signer", () => api.proposeRemoveSigner(hexToBytes(commitment))); setCommitment(""); }} disabled={!commitment}>Propose Remove</button>
+        <label style={{ marginTop: "1rem" }}>Set Threshold</label>
+        <input type="number" placeholder="New threshold" value={newThreshold} onChange={(e) => setNewThreshold(e.target.value)} min="1" max="10" />
+        <button onClick={() => doAction("Propose Set Threshold", () => api.proposeSetThreshold(BigInt(newThreshold)))} disabled={!newThreshold}>Propose Threshold</button>
+      </div>
+    </>
   );
 }
 
@@ -396,10 +455,22 @@ function TransactionsTab({ api, doAction }: { api: DeployedPolyPayAPI; doAction:
   const [txType, setTxType] = useState("0");
 
   const executeFns: Record<string, (id: bigint) => Promise<void>> = {
-    "0": (id) => api.executeTransfer(id),
-    "2": (id) => api.executeAddSigner(id),
-    "3": (id) => api.executeRemoveSigner(id),
-    "4": (id) => api.executeSetThreshold(id),
+    "0": (id) => executeWithDiagnostics(id, "executeTransfer", () => api.executeTransfer(id)),
+    "2": (id) => executeWithDiagnostics(id, "executeAddSigner", () => api.executeAddSigner(id)),
+    "3": (id) => executeWithDiagnostics(id, "executeRemoveSigner", () => api.executeRemoveSigner(id)),
+    "4": (id) => executeWithDiagnostics(id, "executeSetThreshold", () => api.executeSetThreshold(id)),
+  };
+
+  const executeWithDiagnostics = async (txId: bigint, circuit: string, fn: () => Promise<void>) => {
+    console.log(`[DIAG] === ${circuit}(txId=${txId}) ===`);
+    try {
+      const txs = await api.getTransactionList();
+      const tx = txs.find((t) => t.txId === txId);
+      console.log(`[DIAG] Tx state:`, tx ? { txId: tx.txId.toString(), type: tx.txType.toString(), status: tx.status.toString(), approvals: tx.approvals.toString() } : "NOT FOUND");
+    } catch (e) {
+      console.warn("[DIAG] Could not read tx list:", e);
+    }
+    await fn();
   };
 
   const refreshList = useCallback(async () => {
@@ -454,18 +525,3 @@ function TransactionsTab({ api, doAction }: { api: DeployedPolyPayAPI; doAction:
   );
 }
 
-function WithdrawTab({ api, doAction }: { api: DeployedPolyPayAPI; doAction: (l: string, fn: () => Promise<void>) => Promise<void> }) {
-  const [to, setTo] = useState("");
-  const [amount, setAmount] = useState("");
-  return (
-    <div className="card">
-      <h2>Withdraw</h2>
-      <p>Transfer tokens from your personal balance to another address.</p>
-      <label>To (hex)</label>
-      <input placeholder="Recipient address" value={to} onChange={(e) => setTo(e.target.value)} />
-      <label>Amount</label>
-      <input type="number" placeholder="Amount" value={amount} onChange={(e) => setAmount(e.target.value)} />
-      <button onClick={() => doAction("Withdraw", () => api.withdraw(hexToBytes(to), BigInt(amount)))} disabled={!to || !amount}>Withdraw</button>
-    </div>
-  );
-}
