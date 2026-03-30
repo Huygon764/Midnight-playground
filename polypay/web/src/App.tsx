@@ -451,26 +451,12 @@ function ProposeSignerTab({ api, doAction, myCommitment }: { api: DeployedPolyPa
 function TransactionsTab({ api, doAction }: { api: DeployedPolyPayAPI; doAction: (l: string, fn: () => Promise<void>) => Promise<void> }) {
   const [txList, setTxList] = useState<TransactionInfo[]>([]);
   const [loading, setLoading] = useState(false);
-  const [txId, setTxId] = useState("");
-  const [txType, setTxType] = useState("0");
 
   const executeFns: Record<string, (id: bigint) => Promise<void>> = {
-    "0": (id) => executeWithDiagnostics(id, "executeTransfer", () => api.executeTransfer(id)),
-    "2": (id) => executeWithDiagnostics(id, "executeAddSigner", () => api.executeAddSigner(id)),
-    "3": (id) => executeWithDiagnostics(id, "executeRemoveSigner", () => api.executeRemoveSigner(id)),
-    "4": (id) => executeWithDiagnostics(id, "executeSetThreshold", () => api.executeSetThreshold(id)),
-  };
-
-  const executeWithDiagnostics = async (txId: bigint, circuit: string, fn: () => Promise<void>) => {
-    console.log(`[DIAG] === ${circuit}(txId=${txId}) ===`);
-    try {
-      const txs = await api.getTransactionList();
-      const tx = txs.find((t) => t.txId === txId);
-      console.log(`[DIAG] Tx state:`, tx ? { txId: tx.txId.toString(), type: tx.txType.toString(), status: tx.status.toString(), approvals: tx.approvals.toString() } : "NOT FOUND");
-    } catch (e) {
-      console.warn("[DIAG] Could not read tx list:", e);
-    }
-    await fn();
+    "0": (id) => api.executeTransfer(id),
+    "2": (id) => api.executeAddSigner(id),
+    "3": (id) => api.executeRemoveSigner(id),
+    "4": (id) => api.executeSetThreshold(id),
   };
 
   const refreshList = useCallback(async () => {
@@ -486,6 +472,17 @@ function TransactionsTab({ api, doAction }: { api: DeployedPolyPayAPI; doAction:
 
   useEffect(() => { refreshList(); }, [refreshList]);
 
+  const handleApprove = (tx: TransactionInfo) => {
+    doAction(`Approve #${tx.txId}`, async () => { await api.approveTx(tx.txId); await refreshList(); });
+  };
+
+  const handleExecute = (tx: TransactionInfo) => {
+    const type = tx.txType.toString();
+    const fn = executeFns[type];
+    if (!fn) return;
+    doAction(`Execute #${tx.txId} (${TX_TYPE_LABELS[type]})`, async () => { await fn(tx.txId); await refreshList(); });
+  };
+
   return (
     <div className="card">
       <h2>Transactions</h2>
@@ -494,7 +491,7 @@ function TransactionsTab({ api, doAction }: { api: DeployedPolyPayAPI; doAction:
       {txList.length > 0 && (
         <div style={{ marginTop: "0.75rem" }}>
           <div className="tx-row" style={{ fontWeight: "bold", color: "#888" }}>
-            <span>ID</span><span>Type</span><span>Status</span><span>Approvals</span>
+            <span>ID</span><span>Type</span><span>Status</span><span>Approvals</span><span>Actions</span>
           </div>
           {txList.map((tx) => (
             <div key={tx.txId.toString()} className="tx-row">
@@ -502,25 +499,20 @@ function TransactionsTab({ api, doAction }: { api: DeployedPolyPayAPI; doAction:
               <span>{TX_TYPE_LABELS[tx.txType.toString()] ?? `Type ${tx.txType}`}</span>
               <span style={{ color: tx.status === 0n ? "#f59e0b" : "#16a34a" }}>{tx.status === 0n ? "Pending" : "Executed"}</span>
               <span>{tx.approvals.toString()}</span>
+              <span>
+                {tx.status === 0n && (
+                  <>
+                    <button onClick={() => handleApprove(tx)} style={{ marginRight: "0.25rem", padding: "0.2rem 0.5rem", fontSize: "0.8rem" }}>Approve</button>
+                    <button className="success" onClick={() => handleExecute(tx)} style={{ padding: "0.2rem 0.5rem", fontSize: "0.8rem" }}>Execute</button>
+                  </>
+                )}
+              </span>
             </div>
           ))}
         </div>
       )}
 
       {txList.length === 0 && !loading && <p style={{ marginTop: "0.5rem" }}>No transactions yet.</p>}
-
-      <div style={{ marginTop: "1rem", borderTop: "1px solid #333", paddingTop: "1rem" }}>
-        <h2>Approve & Execute</h2>
-        <label>Transaction ID</label>
-        <input type="number" placeholder="txId" value={txId} onChange={(e) => setTxId(e.target.value)} />
-        <button onClick={() => doAction("Approve", async () => { await api.approveTx(BigInt(txId)); await refreshList(); })} disabled={!txId}>Approve</button>
-
-        <label style={{ marginTop: "0.5rem" }}>Execute (select tx type)</label>
-        <select value={txType} onChange={(e) => setTxType(e.target.value)}>
-          {Object.entries(TX_TYPE_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-        </select>
-        <button className="success" onClick={() => doAction(`Execute ${TX_TYPE_LABELS[txType]}`, async () => { await executeFns[txType](BigInt(txId)); await refreshList(); })} disabled={!txId}>Execute</button>
-      </div>
     </div>
   );
 }
