@@ -1,72 +1,25 @@
 import { useState, useEffect, useCallback } from "react";
-import { type PolyPayDerivedState, type TransactionInfo, PolyPayAPI, type DeployedPolyPayAPI, utils } from "../../api/src/index.js";
+import {
+  type PolyPayDerivedState,
+  PolyPayAPI,
+  type DeployedPolyPayAPI,
+} from "../../api/src/index.js";
 import { PolyPay, createPolyPayPrivateState } from "../../contract/src/index.js";
 import { getProviders } from "./providers.js";
 import { toHex } from "@midnight-ntwrk/midnight-js-utils";
 
-type Phase = "connect" | "connecting" | "setup" | "init-signers" | "dashboard" | "error";
-type Tab = "mint" | "propose-transfer" | "propose-signer" | "transactions";
-
-const STORAGE_KEY = "polypay:secret";
-
-function formatError(e: unknown): string {
-  console.error("[formatError] Full error object:", e);
-  if (!(e instanceof Error)) return String(e);
-  // CallTxFailedError from SDK has finalizedTxData with status details
-  const finalizedTxData = (e as any).finalizedTxData;
-  if (finalizedTxData) {
-    console.error("[formatError] finalizedTxData:", JSON.stringify(finalizedTxData, null, 2));
-    return `${e.constructor.name}: status=${finalizedTxData.status ?? "unknown"}`;
-  }
-  const cause = (e as any).cause;
-  if (cause instanceof Error) {
-    console.error("[formatError] cause:", cause);
-    const causeFinalizedTxData = (cause as any).finalizedTxData;
-    if (causeFinalizedTxData) {
-      console.error("[formatError] cause.finalizedTxData:", JSON.stringify(causeFinalizedTxData, null, 2));
-      return `${e.message}: ${cause.constructor.name} status=${causeFinalizedTxData.status ?? "unknown"}`;
-    }
-    return `${e.message}: ${cause.message}`;
-  }
-  return e.message;
-}
-
-function Spinner({ message }: { message: string }) {
-  return (
-    <div className="card">
-      <div className="spinner-row">
-        <div className="spinner" />
-        <span>{message}</span>
-      </div>
-    </div>
-  );
-}
-
-function hexToBytes(hex: string): Uint8Array {
-  const clean = hex.startsWith("0x") ? hex.slice(2) : hex;
-  const bytes = new Uint8Array(clean.length / 2);
-  for (let i = 0; i < bytes.length; i++) {
-    bytes[i] = parseInt(clean.substring(i * 2, i * 2 + 2), 16);
-  }
-  return bytes;
-}
-
-function saveSecret(secret: Uint8Array) {
-  localStorage.setItem(STORAGE_KEY, toHex(secret));
-}
-
-function loadSecret(): Uint8Array | null {
-  const hex = localStorage.getItem(STORAGE_KEY);
-  if (!hex) return null;
-  return hexToBytes(hex);
-}
-
-const TX_TYPE_LABELS: Record<string, string> = {
-  "0": "Transfer",
-  "2": "Add Signer",
-  "3": "Remove Signer",
-  "4": "Set Threshold",
-};
+import type { Phase, Tab } from "./types.js";
+import { formatError, hexToBytes, saveSecret, loadSecret } from "./utils.js";
+import { Icon, Spinner, StatusMessage } from "./components/ui.js";
+import { Sidebar } from "./components/Sidebar.js";
+import { PageHeader } from "./components/PageHeader.js";
+import { IdentityCard } from "./components/IdentityCard.js";
+import { SignerListCard } from "./components/SignerListCard.js";
+import { DashboardOverview } from "./components/DashboardOverview.js";
+import { MintTab } from "./components/MintTab.js";
+import { ProposeTransferTab } from "./components/ProposeTransferTab.js";
+import { ProposeSignerTab } from "./components/ProposeSignerTab.js";
+import { TransactionsTab } from "./components/TransactionsTab.js";
 
 export default function App() {
   const [phase, setPhase] = useState<Phase>("connect");
@@ -77,7 +30,7 @@ export default function App() {
   const [isWorking, setIsWorking] = useState(false);
   const [workingMsg, setWorkingMsg] = useState("");
   const [txStatus, setTxStatus] = useState("");
-  const [tab, setTab] = useState<Tab>("mint");
+  const [tab, setTab] = useState<Tab>("overview");
 
   const [mySecret, setMySecret] = useState("");
   const [myCommitment, setMyCommitment] = useState("");
@@ -132,7 +85,10 @@ export default function App() {
       const providers = await getProviders();
       const saved = loadSecret();
       if (saved) {
-        await providers.privateStateProvider.set("polyPayPrivateState" as any, createPolyPayPrivateState(saved) as any);
+        await providers.privateStateProvider.set(
+          "polyPayPrivateState" as any,
+          createPolyPayPrivateState(saved) as any,
+        );
       }
       const payApi = await PolyPayAPI.deploy(providers, BigInt(threshold));
       setApi(payApi);
@@ -158,7 +114,10 @@ export default function App() {
       const providers = await getProviders();
       const saved = loadSecret();
       if (saved) {
-        await providers.privateStateProvider.set("polyPayPrivateState" as any, createPolyPayPrivateState(saved) as any);
+        await providers.privateStateProvider.set(
+          "polyPayPrivateState" as any,
+          createPolyPayPrivateState(saved) as any,
+        );
       }
       const payApi = await PolyPayAPI.join(providers, joinAddr.trim());
       setApi(payApi);
@@ -216,7 +175,7 @@ export default function App() {
     setTxStatus("");
     try {
       await fn();
-      setTxStatus(`${label} — success`);
+      setTxStatus(`${label} -- success`);
     } catch (e) {
       console.error(`${label} failed:`, e);
       setTxStatus(`Failed: ${formatError(e)}`);
@@ -226,294 +185,254 @@ export default function App() {
     }
   }, []);
 
-  // === RENDER ===
+  // ─── RENDER: Connect Phase ──────────────────────────────────────────
 
   if (phase === "connect" || phase === "error") {
     return (
-      <div>
-        <h1>PolyPay</h1>
-        <p>Private multisig wallet on Midnight. ZK-proven signer identity.</p>
-        <div className="card">
-          <h2>Connect Wallet</h2>
-          <button onClick={connectWallet}>Connect Lace Wallet</button>
+      <div className="min-h-screen bg-background flex items-center justify-center p-6 font-body text-on-surface">
+        <div className="fixed inset-0 overflow-hidden -z-10 pointer-events-none">
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] opacity-20 blur-[120px] rounded-full bg-primary-container" />
         </div>
-        {error && <div className="card"><div className="status error">{error}</div></div>}
+        <main className="w-full max-w-lg">
+          <div className="glass-panel border border-outline-variant/15 rounded-3xl p-10 md:p-12 flex flex-col items-center text-center shadow-2xl">
+            <div className="w-16 h-16 gradient-btn rounded-xl flex items-center justify-center mb-6 shadow-lg shadow-primary-container/20">
+              <Icon name="toll" filled className="text-on-primary text-4xl" />
+            </div>
+            <h1 className="font-headline font-black text-4xl tracking-tighter text-on-surface mb-2">
+              PolyPay
+            </h1>
+            <p className="text-on-surface-variant font-body text-lg">
+              Private Multisig Wallet on Midnight
+            </p>
+            <div className="w-full h-px bg-gradient-to-r from-transparent via-outline-variant/20 to-transparent my-10" />
+            <div className="w-full space-y-4">
+              <button
+                onClick={connectWallet}
+                className="w-full gradient-btn text-on-primary font-headline font-bold text-lg py-5 px-8 rounded-xl transition-all duration-300 hover:scale-[1.02] active:scale-[0.98] flex items-center justify-center gap-3 shadow-lg shadow-primary-container/20"
+              >
+                <Icon name="account_balance_wallet" />
+                Connect Lace Wallet
+              </button>
+              <p className="text-on-surface-variant/60 font-label text-sm tracking-wide">
+                SECURED BY ZERO-KNOWLEDGE PROOFS
+              </p>
+            </div>
+            {error && (
+              <div className="mt-8 w-full bg-error-container/10 border border-error/20 rounded-xl p-4 text-left flex items-start gap-3">
+                <Icon name="error" filled className="text-error mt-0.5" />
+                <p className="text-on-error-container text-sm">{error}</p>
+              </div>
+            )}
+            <div className="mt-12 grid grid-cols-2 gap-4 w-full">
+              <div className="bg-surface-container-low/50 p-4 rounded-xl flex flex-col items-start gap-2 text-left">
+                <Icon name="shield" className="text-secondary" />
+                <span className="font-headline font-semibold text-sm">Always Private</span>
+                <span className="text-xs text-on-surface-variant">Transactional metadata remains shielded.</span>
+              </div>
+              <div className="bg-surface-container-low/50 p-4 rounded-xl flex flex-col items-start gap-2 text-left">
+                <Icon name="group" className="text-secondary" />
+                <span className="font-headline font-semibold text-sm">Multi-Signature</span>
+                <span className="text-xs text-on-surface-variant">Collective asset management for DAOs.</span>
+              </div>
+            </div>
+          </div>
+        </main>
       </div>
     );
   }
+
+  // ─── RENDER: Connecting Phase ───────────────────────────────────────
 
   if (phase === "connecting") {
-    return <div><h1>PolyPay</h1><Spinner message="Connecting to Lace wallet..." /></div>;
-  }
-
-  if (phase === "setup") {
     return (
-      <div>
-        <h1>PolyPay</h1>
-        <div className="status connected">Wallet connected</div>
-
-        {mySecret && <IdentityCard secret={mySecret} commitment={myCommitment} />}
-
-        <div className="card">
-          <h2>Deploy New Contract</h2>
-          <label>Threshold (min approvals)</label>
-          <input type="number" value={threshold} onChange={(e) => setThreshold(e.target.value)} min="1" max="10" />
-          <button onClick={deployContract} disabled={isWorking}>Deploy</button>
+      <div className="min-h-screen bg-background flex items-center justify-center font-body text-on-surface">
+        <div className="fixed inset-0 overflow-hidden -z-10 pointer-events-none">
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] opacity-20 blur-[120px] rounded-full bg-primary-container" />
         </div>
-
-        <div className="card">
-          <h2>Join Existing Contract</h2>
-          <input placeholder="Contract address (hex)" value={joinAddr} onChange={(e) => setJoinAddr(e.target.value)} />
-          <button onClick={joinContract} disabled={isWorking || !joinAddr.trim()}>Join</button>
+        <div className="glass-panel rounded-2xl p-8 flex items-center gap-4 shadow-2xl">
+          <div className="w-6 h-6 border-2 border-outline-variant border-t-primary rounded-full animate-spin" />
+          <span className="text-on-surface font-headline text-lg">Connecting to Lace wallet...</span>
         </div>
-
-        {isWorking && <Spinner message={workingMsg} />}
-        {txStatus && <div className="card"><div className={`status ${txStatus.includes("ailed") ? "error" : "connected"}`}><pre>{txStatus}</pre></div></div>}
       </div>
     );
   }
 
-  if (phase === "init-signers") {
-    return (
-      <div>
-        <h1>PolyPay</h1>
-        <div className="status connected">Contract: <span className="mono">{contractAddress}</span></div>
+  // ─── RENDER: Sidebar Layout (setup, init-signers, dashboard) ───────
 
-        <IdentityCard secret={mySecret} commitment={myCommitment} />
-
-        {state && (
-          <div className="grid-2">
-            <div className="stat"><div className="value">{state.signerCount.toString()}</div><div className="label">Signers</div></div>
-            <div className="stat"><div className="value">{state.threshold.toString()}</div><div className="label">Threshold</div></div>
-          </div>
-        )}
-
-        <SignerListCard api={api!} myCommitment={myCommitment} />
-
-        <div className="card">
-          <h2>Add Signer</h2>
-          <p>Add signer commitments one by one. Deployer is already added.</p>
-          <input placeholder="Signer commitment (hex)" value={signerCommitment} onChange={(e) => setSignerCommitment(e.target.value)} />
-          <button onClick={addSigner} disabled={isWorking || !signerCommitment.trim()}>Add Signer</button>
-        </div>
-
-        <div className="card">
-          <h2>Finalize</h2>
-          <p>Lock the contract. No more signers can be added via initSigner after this.</p>
-          <button className="success" onClick={doFinalize} disabled={isWorking}>Finalize Contract</button>
-        </div>
-
-        {isWorking && <Spinner message={workingMsg} />}
-        {txStatus && <div className="card"><div className={`status ${txStatus.includes("ailed") ? "error" : "connected"}`}><pre>{txStatus}</pre></div></div>}
-      </div>
-    );
-  }
+  const breadcrumbMap: Record<string, string> = {
+    setup: "Setup",
+    "init-signers": "Add Signers",
+    overview: "Dashboard",
+    mint: "Mint Tokens",
+    "propose-transfer": "Propose Transfer",
+    "propose-signer": "Manage Signers",
+    transactions: "Transactions",
+  };
+  const breadcrumb = phase === "dashboard" ? breadcrumbMap[tab] : breadcrumbMap[phase];
 
   return (
-    <div>
-      <h1>PolyPay</h1>
-      <div className="status connected">Contract: <span className="mono">{contractAddress}</span></div>
+    <div className="flex min-h-screen bg-background text-on-surface font-body">
+      <Sidebar
+        activeTab={tab}
+        onTabChange={(t) => {
+          if (phase === "dashboard") {
+            setTab(t);
+            setTxStatus("");
+          }
+        }}
+        address={myCommitment || undefined}
+        interactive={phase === "dashboard"}
+      />
 
-      <IdentityCard secret={mySecret} commitment={myCommitment} />
+      <div className="ml-64 flex-1 flex flex-col min-h-screen relative">
+        <PageHeader breadcrumb={breadcrumb} />
 
-      {state && (
-        <div className="grid-2">
-          <div className="stat"><div className="value">{state.totalSupply.toString()}</div><div className="label">Total Supply</div></div>
-          <div className="stat"><div className="value">{state.signerCount.toString()}/{state.threshold.toString()}</div><div className="label">Signers / Threshold</div></div>
-        </div>
-      )}
-
-      {isWorking && <Spinner message={workingMsg} />}
-
-      {!isWorking && (
-        <>
-          <div className="tabs">
-            {(["mint", "propose-transfer", "propose-signer", "transactions"] as Tab[]).map((t) => (
-              <div key={t} className={`tab ${tab === t ? "active" : ""}`} onClick={() => { setTab(t); setTxStatus(""); }}>
-                {t === "propose-transfer" ? "Transfer" : t === "propose-signer" ? "Signers" : t.charAt(0).toUpperCase() + t.slice(1)}
+        <main className="flex-1 p-8 max-w-5xl w-full mx-auto space-y-6">
+          {/* Setup Phase */}
+          {phase === "setup" && (
+            <>
+              <div className="space-y-2 mb-8">
+                <h2 className="text-4xl font-headline font-extrabold tracking-tight">Setup PolyPay</h2>
+                <p className="text-on-surface-variant max-w-2xl">
+                  Deploy a new private multisig vault or join an existing contract on the Midnight Network.
+                </p>
               </div>
-            ))}
-          </div>
+              {mySecret && <IdentityCard secret={mySecret} commitment={myCommitment} />}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div className="bg-surface-container-low rounded-2xl p-8 relative overflow-hidden">
+                  <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-primary to-primary-container" />
+                  <h3 className="text-2xl font-headline font-extrabold tracking-tight mb-2">Deploy New Multisig</h3>
+                  <p className="text-on-surface-variant text-sm mb-6">Initialize your private vault on the Midnight Network.</p>
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-headline font-bold text-outline mb-2">Approval Threshold</label>
+                      <input type="number" value={threshold} onChange={(e) => setThreshold(e.target.value)} min="1" max="10"
+                        className="w-full bg-surface-container-lowest border-none rounded-xl py-4 px-5 text-on-surface font-label text-lg focus:ring-2 focus:ring-primary/50 transition-all outline-none" />
+                      <div className="mt-2 flex items-start gap-2 px-1">
+                        <Icon name="info" className="text-primary text-sm mt-0.5" />
+                        <p className="text-xs text-on-surface-variant">You will be added as the first signer. The threshold defines how many signatures are needed to execute transactions.</p>
+                      </div>
+                    </div>
+                    <button onClick={deployContract} disabled={isWorking}
+                      className="w-full py-4 rounded-xl gradient-btn text-on-primary font-headline font-extrabold text-lg shadow-xl shadow-primary-container/20 hover:brightness-110 active:scale-[0.98] transition-all disabled:opacity-50">
+                      Deploy Multisig Vault
+                    </button>
+                  </div>
+                </div>
+                <div className="bg-surface-container-low rounded-2xl p-8 relative overflow-hidden">
+                  <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-secondary to-secondary-container" />
+                  <h3 className="text-2xl font-headline font-extrabold tracking-tight mb-2">Join Existing Multisig</h3>
+                  <p className="text-on-surface-variant text-sm mb-6">Connect to an existing Midnight contract by providing the contract identifier.</p>
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-headline font-bold text-outline mb-2">Contract Address</label>
+                      <input placeholder="0x..." value={joinAddr} onChange={(e) => setJoinAddr(e.target.value)}
+                        className="w-full bg-surface-container-lowest border-none rounded-xl py-4 px-5 text-on-surface font-label text-lg focus:ring-2 focus:ring-primary/50 transition-all outline-none placeholder:text-outline/40" />
+                      <div className="mt-2 flex items-center gap-2 px-1">
+                        <Icon name="info" className="text-tertiary text-sm" />
+                        <span className="text-xs text-on-surface-variant italic">Verify the address on the Midnight Explorer.</span>
+                      </div>
+                    </div>
+                    <button onClick={joinContract} disabled={isWorking || !joinAddr.trim()}
+                      className="w-full py-4 rounded-xl gradient-btn text-on-primary font-headline font-extrabold text-lg shadow-xl shadow-primary-container/20 hover:brightness-110 active:scale-[0.98] transition-all disabled:opacity-50 flex items-center justify-center gap-2">
+                      Join Multisig <Icon name="arrow_forward" className="text-xl" />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
 
-          {tab === "mint" && <MintTab api={api!} doAction={doAction} />}
-          {tab === "propose-transfer" && <ProposeTransferTab api={api!} doAction={doAction} />}
-          {tab === "propose-signer" && <ProposeSignerTab api={api!} doAction={doAction} myCommitment={myCommitment} />}
-          {tab === "transactions" && <TransactionsTab api={api!} doAction={doAction} />}
-        </>
-      )}
+          {/* Init Signers Phase */}
+          {phase === "init-signers" && (
+            <>
+              <div className="space-y-2 mb-4">
+                <h2 className="text-4xl font-headline font-extrabold tracking-tight">Add Signers</h2>
+                <p className="text-on-surface-variant max-w-2xl">
+                  Define the multisig participants who will authorize future configuration changes. This ensures decentralized security for the Midnight Network protocol.
+                </p>
+              </div>
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                <div className="lg:col-span-8 space-y-6">
+                  {state && (
+                    <div className="bg-surface-container rounded-2xl p-6">
+                      <div className="flex justify-between items-end">
+                        <div>
+                          <p className="text-xs uppercase font-bold tracking-widest text-outline font-label mb-1">Configuration Status</p>
+                          <h3 className="text-2xl font-headline font-bold text-primary">
+                            Signers: {state.signerCount.toString()}
+                            <span className="text-outline text-lg font-normal ml-2">(threshold: {state.threshold.toString()})</span>
+                          </h3>
+                        </div>
+                        <div className="w-32 h-2 bg-surface-container-highest rounded-full overflow-hidden">
+                          <div className="h-full bg-gradient-to-r from-primary to-primary-container rounded-full"
+                            style={{ width: `${Math.min(100, (Number(state.signerCount) / Math.max(1, Number(state.threshold) + 1)) * 100)}%` }} />
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  <div className="bg-surface-container rounded-2xl p-6 space-y-4">
+                    <label className="block text-sm font-label font-medium text-on-surface-variant">Signer Commitment (hex)</label>
+                    <div className="flex gap-3">
+                      <input placeholder="0x..." value={signerCommitment} onChange={(e) => setSignerCommitment(e.target.value)}
+                        className="flex-1 bg-surface-container-low border border-outline-variant/20 rounded-xl px-4 py-4 font-label text-on-surface focus:outline-none focus:border-primary/50 transition-all placeholder:text-outline/40" />
+                      <button onClick={addSigner} disabled={isWorking || !signerCommitment.trim()}
+                        className="gradient-btn text-on-primary font-headline font-bold px-8 rounded-xl hover:brightness-110 active:scale-95 transition-all flex items-center gap-2 whitespace-nowrap disabled:opacity-50">
+                        <Icon name="person_add" className="text-sm" /> Add Signer
+                      </button>
+                    </div>
+                  </div>
+                  <SignerListCard api={api!} myCommitment={myCommitment} />
+                  <div className="flex items-start gap-4 p-5 bg-tertiary-container/10 border border-tertiary-container/30 rounded-2xl">
+                    <Icon name="warning" className="text-tertiary mt-1" />
+                    <div className="flex flex-col gap-1">
+                      <span className="font-headline font-bold text-tertiary leading-none">Security Protocol Warning</span>
+                      <p className="text-sm text-on-tertiary-container/80">After finalizing, only multisig proposals can change signers. Ensure all commitments are correct before proceeding.</p>
+                    </div>
+                  </div>
+                </div>
+                <div className="lg:col-span-4 flex flex-col gap-6">
+                  <IdentityCard secret={mySecret} commitment={myCommitment} />
+                  <div className="bg-surface-container-low rounded-2xl p-6">
+                    <h4 className="font-headline font-bold text-on-surface mb-4 flex items-center gap-2">
+                      <Icon name="gavel" className="text-primary text-sm" /> Multisig Policy
+                    </h4>
+                    <ul className="flex flex-col gap-3">
+                      <li className="flex gap-3 text-sm"><Icon name="check_circle" className="text-outline text-lg" /><span className="text-on-surface-variant">Add all required signers before finalizing.</span></li>
+                      <li className="flex gap-3 text-sm"><Icon name="check_circle" className="text-outline text-lg" /><span className="text-on-surface-variant">Threshold determines required approvals per transaction.</span></li>
+                      <li className="flex gap-3 text-sm"><Icon name="check_circle" className="text-outline text-lg" /><span className="text-on-surface-variant">All signers have equal cryptographic weight.</span></li>
+                    </ul>
+                  </div>
+                  <div className="mt-auto">
+                    <button onClick={doFinalize} disabled={isWorking}
+                      className="w-full gradient-btn text-on-primary font-headline font-extrabold py-5 rounded-2xl flex items-center justify-center gap-3 shadow-xl shadow-primary-container/20 hover:brightness-110 active:scale-[0.98] transition-all disabled:opacity-50">
+                      <Icon name="lock" /> Finalize Configuration
+                    </button>
+                    <p className="text-[10px] text-center text-outline mt-3 font-label uppercase tracking-widest">Locks contract for operations</p>
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
 
-      {txStatus && <div className="card"><div className={`status ${txStatus.includes("ailed") ? "error" : "connected"}`}><pre>{txStatus}</pre></div></div>}
-    </div>
-  );
-}
+          {/* Dashboard Phase */}
+          {phase === "dashboard" && (
+            <>
+              {tab === "overview" && <DashboardOverview state={state} contractAddress={contractAddress} mySecret={mySecret} myCommitment={myCommitment} onNavigate={setTab} />}
+              {tab === "mint" && <MintTab api={api!} doAction={doAction} />}
+              {tab === "propose-transfer" && <ProposeTransferTab api={api!} doAction={doAction} />}
+              {tab === "propose-signer" && <ProposeSignerTab api={api!} doAction={doAction} myCommitment={myCommitment} />}
+              {tab === "transactions" && <TransactionsTab api={api!} doAction={doAction} />}
+            </>
+          )}
 
-function SignerListCard({ api, myCommitment }: { api: DeployedPolyPayAPI; myCommitment: string }) {
-  const [signers, setSigners] = useState<string[]>([]);
-  const [loading, setLoading] = useState(false);
+          {isWorking && <Spinner message={workingMsg} />}
+          {txStatus && <StatusMessage message={txStatus} />}
+        </main>
 
-  const refresh = useCallback(async () => {
-    setLoading(true);
-    try {
-      const list = await api.getSignerList();
-      setSigners(list.map((s) => toHex(s)));
-    } catch (e) {
-      console.error("Failed to load signers:", e);
-    } finally {
-      setLoading(false);
-    }
-  }, [api]);
-
-  useEffect(() => { refresh(); }, [refresh]);
-
-  return (
-    <div className="card">
-      <h2>Registered Signers</h2>
-      <button className="secondary" onClick={refresh} disabled={loading}>{loading ? "Loading..." : "Refresh"}</button>
-      {signers.length > 0 && (
-        <div style={{ marginTop: "0.5rem" }}>
-          {signers.map((s, i) => (
-            <div key={i} className="mono" style={{ fontSize: "0.75rem", padding: "0.25rem 0", color: s === myCommitment ? "#16a34a" : "#ccc" }}>
-              {s}{s === myCommitment ? " (you)" : ""}
-            </div>
-          ))}
-        </div>
-      )}
-      {signers.length === 0 && !loading && <p>No signers.</p>}
-    </div>
-  );
-}
-
-function IdentityCard({ secret, commitment }: { secret: string; commitment: string }) {
-  if (!secret) return null;
-  return (
-    <div className="card">
-      <h2>Your Identity</h2>
-      <label>Commitment (share this):</label>
-      <div className="mono">{commitment}</div>
-      <button className="secondary" onClick={() => navigator.clipboard.writeText(commitment)}>Copy Commitment</button>
-      <details style={{ marginTop: "0.5rem" }}>
-        <summary style={{ cursor: "pointer", color: "#888" }}>Show Secret</summary>
-        <div className="mono" style={{ marginTop: "0.25rem" }}>{secret}</div>
-        <button className="secondary" onClick={() => navigator.clipboard.writeText(secret)}>Copy Secret</button>
-      </details>
-    </div>
-  );
-}
-
-function MintTab({ api, doAction }: { api: DeployedPolyPayAPI; doAction: (l: string, fn: () => Promise<void>) => Promise<void> }) {
-  const [amount, setAmount] = useState("");
-  return (
-    <div className="card">
-      <h2>Mint Tokens</h2>
-      <p>Add tokens to the multisig vault. Max 65535 per call.</p>
-      <input type="number" placeholder="Amount" value={amount} onChange={(e) => setAmount(e.target.value)} min="1" max="65535" />
-      <button onClick={() => doAction("Mint", () => api.mint(BigInt(amount)))} disabled={!amount}>Mint</button>
-    </div>
-  );
-}
-
-function ProposeTransferTab({ api, doAction }: { api: DeployedPolyPayAPI; doAction: (l: string, fn: () => Promise<void>) => Promise<void> }) {
-  const [to, setTo] = useState("");
-  const [amount, setAmount] = useState("");
-  return (
-    <div className="card">
-      <h2>Propose Transfer</h2>
-      <p>Propose sending tokens from vault to a recipient. Auto-approves as proposer.</p>
-      <label>Recipient (hex)</label>
-      <input placeholder="Recipient commitment/address" value={to} onChange={(e) => setTo(e.target.value)} />
-      <label>Amount</label>
-      <input type="number" placeholder="Amount" value={amount} onChange={(e) => setAmount(e.target.value)} />
-      <button onClick={() => doAction("Propose Transfer", () => api.proposeTransfer(hexToBytes(to), BigInt(amount)))} disabled={!to || !amount}>Propose</button>
-    </div>
-  );
-}
-
-function ProposeSignerTab({ api, doAction, myCommitment }: { api: DeployedPolyPayAPI; doAction: (l: string, fn: () => Promise<void>) => Promise<void>; myCommitment: string }) {
-  const [commitment, setCommitment] = useState("");
-  const [newThreshold, setNewThreshold] = useState("");
-  return (
-    <>
-      <SignerListCard api={api} myCommitment={myCommitment} />
-      <div className="card">
-        <h2>Propose Changes</h2>
-        <label>Signer commitment (hex)</label>
-        <input placeholder="Commitment" value={commitment} onChange={(e) => setCommitment(e.target.value)} />
-        <button onClick={() => { doAction("Propose Add Signer", () => api.proposeAddSigner(hexToBytes(commitment))); setCommitment(""); }} disabled={!commitment}>Propose Add</button>
-        <button className="danger" onClick={() => { doAction("Propose Remove Signer", () => api.proposeRemoveSigner(hexToBytes(commitment))); setCommitment(""); }} disabled={!commitment}>Propose Remove</button>
-        <label style={{ marginTop: "1rem" }}>Set Threshold</label>
-        <input type="number" placeholder="New threshold" value={newThreshold} onChange={(e) => setNewThreshold(e.target.value)} min="1" max="10" />
-        <button onClick={() => doAction("Propose Set Threshold", () => api.proposeSetThreshold(BigInt(newThreshold)))} disabled={!newThreshold}>Propose Threshold</button>
+        <div className="fixed top-0 right-0 w-[500px] h-[500px] bg-primary/5 rounded-full blur-[120px] -z-10 pointer-events-none" />
+        <div className="fixed bottom-0 left-64 w-[300px] h-[300px] bg-secondary/5 rounded-full blur-[100px] -z-10 pointer-events-none" />
       </div>
-    </>
-  );
-}
-
-function TransactionsTab({ api, doAction }: { api: DeployedPolyPayAPI; doAction: (l: string, fn: () => Promise<void>) => Promise<void> }) {
-  const [txList, setTxList] = useState<TransactionInfo[]>([]);
-  const [loading, setLoading] = useState(false);
-
-  const executeFns: Record<string, (id: bigint) => Promise<void>> = {
-    "0": (id) => api.executeTransfer(id),
-    "2": (id) => api.executeAddSigner(id),
-    "3": (id) => api.executeRemoveSigner(id),
-    "4": (id) => api.executeSetThreshold(id),
-  };
-
-  const refreshList = useCallback(async () => {
-    setLoading(true);
-    try {
-      setTxList(await api.getTransactionList());
-    } catch (e) {
-      console.error("Failed to load txs:", e);
-    } finally {
-      setLoading(false);
-    }
-  }, [api]);
-
-  useEffect(() => { refreshList(); }, [refreshList]);
-
-  const handleApprove = (tx: TransactionInfo) => {
-    doAction(`Approve #${tx.txId}`, async () => { await api.approveTx(tx.txId); await refreshList(); });
-  };
-
-  const handleExecute = (tx: TransactionInfo) => {
-    const type = tx.txType.toString();
-    const fn = executeFns[type];
-    if (!fn) return;
-    doAction(`Execute #${tx.txId} (${TX_TYPE_LABELS[type]})`, async () => { await fn(tx.txId); await refreshList(); });
-  };
-
-  return (
-    <div className="card">
-      <h2>Transactions</h2>
-      <button className="secondary" onClick={refreshList} disabled={loading}>{loading ? "Loading..." : "Refresh"}</button>
-
-      {txList.length > 0 && (
-        <div style={{ marginTop: "0.75rem" }}>
-          <div className="tx-row" style={{ fontWeight: "bold", color: "#888" }}>
-            <span>ID</span><span>Type</span><span>Status</span><span>Approvals</span><span>Actions</span>
-          </div>
-          {txList.map((tx) => (
-            <div key={tx.txId.toString()} className="tx-row">
-              <span>#{tx.txId.toString()}</span>
-              <span>{TX_TYPE_LABELS[tx.txType.toString()] ?? `Type ${tx.txType}`}</span>
-              <span style={{ color: tx.status === 0n ? "#f59e0b" : "#16a34a" }}>{tx.status === 0n ? "Pending" : "Executed"}</span>
-              <span>{tx.approvals.toString()}</span>
-              <span>
-                {tx.status === 0n && (
-                  <>
-                    <button onClick={() => handleApprove(tx)} style={{ marginRight: "0.25rem", padding: "0.2rem 0.5rem", fontSize: "0.8rem" }}>Approve</button>
-                    <button className="success" onClick={() => handleExecute(tx)} style={{ padding: "0.2rem 0.5rem", fontSize: "0.8rem" }}>Execute</button>
-                  </>
-                )}
-              </span>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {txList.length === 0 && !loading && <p style={{ marginTop: "0.5rem" }}>No transactions yet.</p>}
     </div>
   );
 }
-
