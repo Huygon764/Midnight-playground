@@ -1,0 +1,84 @@
+@import "tailwindcss";
+
+@theme {
+  /* Surface hierarchy */
+  --color-background: #131318;
+  --color-surface: #131318;
+  --color-surface-dim: #131318;
+  --color-surface-bright: #39383e;
+  --color-surface-container: #1f1f25;
+  --color-surface-container-low: #1b1b20;
+  --color-surface-container-lowest: #0e0e13;
+  --color-surface-container-high: #2a292f;
+  --color-surface-container-highest: #35343a;
+  --color-surface-variant: #35343a;
+  --color-surface-tint: #d0bcff;
+
+  /* Primary */
+  --color-primary: #d0bcff;
+  --color-primary-container: #622ccc;
+  --color-primary-fixed: #e9ddff;
+  --color-primary-fixed-dim: #d0bcff;
+  --color-on-primary: #3c0091;
+  --color-on-primary-container: #d2beff;
+  --color-on-primary-fixed: #23005c;
+  --color-on-primary-fixed-variant: #5516be;
+  --color-inverse-primary: #6d3bd7;
+
+  /* Secondary */
+  --color-secondary: #c4c1fb;
+  --color-secondary-container: #444173;
+  --color-secondary-fixed: #e3dfff;
+  --color-secondary-fixed-dim: #c4c1fb;
+  --color-on-secondary: #2d2a5b;
+  --color-on-secondary-container: #b3afe9;
+  --color-on-secondary-fixed: #181445;
+  --color-on-secondary-fixed-variant: #444173;
+
+  /* Tertiary */
+  --color-tertiary: #ffb59a;
+  --color-tertiary-container: #963200;
+  --color-tertiary-fixed: #ffdbcf;
+  --color-tertiary-fixed-dim: #ffb59a;
+  --color-on-tertiary: #5b1b00;
+  --color-on-tertiary-container: #ffb79d;
+  --color-on-tertiary-fixed: #380d00;
+  --color-on-tertiary-fixed-variant: #802a00;
+
+  /* Error */
+  --color-error: #ffb4ab;
+  --color-error-container: #93000a;
+  --color-on-error: #690005;
+  --color-on-error-container: #ffdad6;
+
+  /* Neutral */
+  --color-outline: #948da2;
+  --color-outline-variant: #494456;
+  --color-on-surface: #e4e1e9;
+  --color-on-surface-variant: #cbc3d9;
+  --color-on-background: #e4e1e9;
+  --color-inverse-surface: #e4e1e9;
+  --color-inverse-on-surface: #303036;
+
+  /* Fonts */
+  --font-headline: "Manrope", sans-serif;
+  --font-body: "Inter", sans-serif;
+  --font-label: "Space Grotesk", sans-serif;
+}
+
+/* Custom utilities */
+.glass-panel {
+  background: rgba(53, 52, 58, 0.6);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+}
+
+.gradient-btn {
+  background: linear-gradient(135deg, #d0bcff 0%, #622ccc 100%);
+}
+
+.material-symbols-outlined {
+  font-variation-settings: "FILL" 0, "wght" 400, "GRAD" 0, "opsz" 24;
+  display: inline-block;
+  vertical-align: middle;
+}
