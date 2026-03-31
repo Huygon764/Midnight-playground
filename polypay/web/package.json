@@ -4,8 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite --mode preprod",
-    "build": "tsc && vite build --mode preprod && cp -r ../contract/src/managed/polypay/keys ./dist/keys && cp -r ../contract/src/managed/polypay/zkir ./dist/zkir",
+    "copy-keys": "rm -rf public/keys public/zkir && mkdir -p public/keys public/zkir && cp ../contract/src/managed/polypay/keys/* public/keys/ && cp ../contract/src/managed/polypay/zkir/* public/zkir/ && cp ../contract/src/managed/token/keys/* public/keys/ && cp ../contract/src/managed/token/zkir/* public/zkir/",
+    "dev": "npm run copy-keys && vite --mode preprod",
+    "build": "tsc && vite build --mode preprod && cp -r ../contract/src/managed/polypay/keys ./dist/keys && cp -r ../contract/src/managed/polypay/zkir ./dist/zkir && cp ../contract/src/managed/token/keys/* ./dist/keys/ && cp ../contract/src/managed/token/zkir/* ./dist/zkir/",
     "preview": "vite preview"
   },
   "dependencies": {

@@ -1,22 +1,41 @@
-import type { PolyPayDerivedState } from "../../../api/src/index.js";
-import type { Tab } from "../types.js";
+import { useState, useEffect, useCallback } from "react";
+import type { PolyPayDerivedState, DeployedPolyPayAPI } from "../../../api/src/index.js";
+import type { WalletTab } from "../types.js";
 import { truncateHex } from "../utils.js";
 import { Icon, CopyButton } from "./ui.js";
 import { IdentityCard } from "./IdentityCard.js";
 
 export function DashboardOverview({
   state,
+  api,
   contractAddress,
+  tokenColor,
   mySecret,
   myCommitment,
   onNavigate,
 }: {
   state: PolyPayDerivedState | null;
+  api: DeployedPolyPayAPI | null;
   contractAddress: string;
+  tokenColor: string;
   mySecret: string;
   myCommitment: string;
-  onNavigate: (tab: Tab) => void;
+  onNavigate: (tab: WalletTab) => void;
 }) {
+  const [vaultBalance, setVaultBalance] = useState("--");
+
+  const refreshBalance = useCallback(async () => {
+    if (!api || !tokenColor) return;
+    try {
+      const bal = await api.getVaultBalance(tokenColor);
+      setVaultBalance(bal.toString());
+    } catch {
+      setVaultBalance("?");
+    }
+  }, [api, tokenColor]);
+
+  useEffect(() => { refreshBalance(); }, [refreshBalance]);
+
   return (
     <>
       {/* Stats Row */}
@@ -31,7 +50,7 @@ export function DashboardOverview({
             </span>
             <div className="flex items-baseline gap-2">
               <h2 className="text-3xl font-headline font-extrabold text-on-surface tracking-tight">
-                {state.totalSupply.toString()}
+                {vaultBalance}
               </h2>
               <span className="text-primary font-label font-bold">tokens</span>
             </div>
@@ -90,11 +109,11 @@ export function DashboardOverview({
       {/* Quick Actions */}
       <div className="mb-8 flex flex-wrap gap-4">
         <button
-          onClick={() => onNavigate("mint")}
+          onClick={() => onNavigate("deposit")}
           className="gradient-btn px-6 py-3 rounded-xl font-headline font-bold text-on-primary flex items-center gap-2 shadow-lg shadow-primary-container/20 active:scale-95 transition-transform"
         >
-          <Icon name="add_card" />
-          Mint
+          <Icon name="savings" />
+          Deposit
         </button>
         <button
           onClick={() => onNavigate("propose-transfer")}
@@ -109,6 +128,12 @@ export function DashboardOverview({
         >
           <Icon name="group_add" />
           Manage Signers
+        </button>
+        <button
+          onClick={refreshBalance}
+          className="bg-surface-container hover:bg-surface-container-high px-4 py-3 rounded-xl text-outline hover:text-primary flex items-center gap-2 transition-all"
+        >
+          <Icon name="refresh" className="text-sm" />
         </button>
       </div>
 

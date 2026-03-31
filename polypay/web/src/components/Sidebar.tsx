@@ -1,18 +1,29 @@
-import { type Tab, NAV_ITEMS } from "../types.js";
+import { type Mode, type TokenTab, type WalletTab, TOKEN_NAV_ITEMS, WALLET_NAV_ITEMS } from "../types.js";
 import { truncateHex, clearSession } from "../utils.js";
 import { Icon, CopyButton } from "./ui.js";
 
 export function Sidebar({
-  activeTab,
-  onTabChange,
+  mode,
+  onModeChange,
+  activeTokenTab,
+  activeWalletTab,
+  onTokenTabChange,
+  onWalletTabChange,
   address,
   interactive,
 }: {
-  activeTab: Tab;
-  onTabChange: (tab: Tab) => void;
+  mode: Mode;
+  onModeChange: (mode: Mode) => void;
+  activeTokenTab: TokenTab;
+  activeWalletTab: WalletTab;
+  onTokenTabChange: (tab: TokenTab) => void;
+  onWalletTabChange: (tab: WalletTab) => void;
   address?: string;
   interactive: boolean;
 }) {
+  const navItems = mode === "token" ? TOKEN_NAV_ITEMS : WALLET_NAV_ITEMS;
+  const activeTab = mode === "token" ? activeTokenTab : activeWalletTab;
+
   return (
     <aside className="h-screen w-64 fixed left-0 top-0 flex flex-col bg-surface-container-lowest py-8 px-4 gap-6 z-50">
       <div className="flex items-center gap-3 px-2">
@@ -29,13 +40,41 @@ export function Sidebar({
         </div>
       </div>
 
-      <nav className="flex flex-col gap-1 mt-4">
-        {NAV_ITEMS.map((item) => {
+      {/* Mode Switcher */}
+      <div className="flex gap-1 bg-surface-container rounded-xl p-1">
+        <button
+          onClick={() => onModeChange("token")}
+          className={`flex-1 py-2 rounded-lg text-xs font-headline font-bold transition-all ${
+            mode === "token"
+              ? "bg-primary/10 text-primary"
+              : "text-outline hover:text-on-surface"
+          }`}
+        >
+          Token
+        </button>
+        <button
+          onClick={() => onModeChange("wallet")}
+          className={`flex-1 py-2 rounded-lg text-xs font-headline font-bold transition-all ${
+            mode === "wallet"
+              ? "bg-primary/10 text-primary"
+              : "text-outline hover:text-on-surface"
+          }`}
+        >
+          Multisig
+        </button>
+      </div>
+
+      <nav className="flex flex-col gap-1">
+        {navItems.map((item) => {
           const isActive = activeTab === item.id;
           return (
             <button
               key={item.id}
-              onClick={() => interactive && onTabChange(item.id)}
+              onClick={() => {
+                if (!interactive) return;
+                if (mode === "token") onTokenTabChange(item.id as TokenTab);
+                else onWalletTabChange(item.id as WalletTab);
+              }}
               className={`flex items-center gap-3 px-4 py-3 rounded-xl text-left transition-all duration-200 ${
                 isActive
                   ? "text-primary font-bold border-r-4 border-primary-container bg-white/5"

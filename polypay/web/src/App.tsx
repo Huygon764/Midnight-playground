@@ -3,41 +3,70 @@ import {
   type PolyPayDerivedState,
   PolyPayAPI,
   type DeployedPolyPayAPI,
+  TokenAPI,
+  type DeployedTokenAPI,
 } from "../../api/src/index.js";
-import { PolyPay, createPolyPayPrivateState } from "../../contract/src/index.js";
-import { getProviders, getConnectedAPI } from "./providers.js";
+import { PolyPay, createPolyPayPrivateState, createTokenPrivateState } from "../../contract/src/index.js";
+import { getProviders, getConnectedAPI, getUnshieldedAddressBytes } from "./providers.js";
 import { toHex } from "@midnight-ntwrk/midnight-js-utils";
 
-import type { Phase, Tab } from "./types.js";
-import { formatError, hexToBytes, saveSecret, loadSecret, saveContractAddress, loadContractAddress, deriveSecretFromSignature } from "./utils.js";
-import { Icon, Spinner, StatusMessage } from "./components/ui.js";
+import type { Mode, Phase, TokenTab, WalletTab } from "./types.js";
+import {
+  formatError,
+  hexToBytes,
+  saveSecret,
+  loadSecret,
+  saveContractAddress,
+  loadContractAddress,
+  saveTokenAddress,
+  loadTokenAddress,
+  truncateHex,
+  deriveSecretFromSignature,
+} from "./utils.js";
+import { Icon, CopyButton, Spinner, StatusMessage } from "./components/ui.js";
 import { Sidebar } from "./components/Sidebar.js";
 import { PageHeader } from "./components/PageHeader.js";
 import { IdentityCard } from "./components/IdentityCard.js";
 import { SignerListCard } from "./components/SignerListCard.js";
 import { DashboardOverview } from "./components/DashboardOverview.js";
-import { MintTab } from "./components/MintTab.js";
+import { TokenPage } from "./components/TokenPage.js";
+import { DepositTab } from "./components/DepositTab.js";
 import { ProposeTransferTab } from "./components/ProposeTransferTab.js";
 import { ProposeSignerTab } from "./components/ProposeSignerTab.js";
 import { TransactionsTab } from "./components/TransactionsTab.js";
 
 export default function App() {
   const [phase, setPhase] = useState<Phase>("connect");
+  const [mode, setMode] = useState<Mode>("token");
   const [error, setError] = useState("");
-  const [api, setApi] = useState<DeployedPolyPayAPI | null>(null);
-  const [state, setState] = useState<PolyPayDerivedState | null>(null);
-  const [contractAddress, setContractAddress] = useState("");
   const [isWorking, setIsWorking] = useState(false);
   const [workingMsg, setWorkingMsg] = useState("");
   const [txStatus, setTxStatus] = useState("");
-  const [tab, setTab] = useState<Tab>("overview");
 
+  // Identity
   const [mySecret, setMySecret] = useState("");
   const [myCommitment, setMyCommitment] = useState("");
+  const [myAddress, setMyAddress] = useState("");
+
+  // Token state
+  const [tokenApi, setTokenApi] = useState<DeployedTokenAPI | null>(null);
+  const [tokenAddress, setTokenAddress] = useState("");
+  const [tokenColor, setTokenColor] = useState("");
+  const [tokenName, setTokenName] = useState("POLY");
+  const [tokenSymbol, setTokenSymbol] = useState("POLY");
+  const [tokenTab, setTokenTab] = useState<TokenTab>("token-info");
+
+  // Wallet state
+  const [api, setApi] = useState<DeployedPolyPayAPI | null>(null);
+  const [state, setState] = useState<PolyPayDerivedState | null>(null);
+  const [contractAddress, setContractAddress] = useState("");
+  const [walletTab, setWalletTab] = useState<WalletTab>("overview");
   const [threshold, setThreshold] = useState("2");
   const [joinAddr, setJoinAddr] = useState("");
   const [signerCommitment, setSignerCommitment] = useState("");
+  const [tokenColorInput, setTokenColorInput] = useState("");
 
+  // Subscribe to multisig state
   useEffect(() => {
     if (!api) return;
     const sub = api.state$.subscribe({
@@ -47,6 +76,7 @@ export default function App() {
     return () => sub.unsubscribe();
   }, [api]);
 
+  // Restore secret from localStorage on load
   useEffect(() => {
     const saved = loadSecret();
     if (saved) {
@@ -56,10 +86,10 @@ export default function App() {
     }
   }, []);
 
+  // Derive or restore secret
   const restoreOrDeriveSecret = useCallback(async (): Promise<Uint8Array> => {
     const saved = loadSecret();
     if (saved) return saved;
-
     const walletApi = getConnectedAPI();
     const result = await walletApi.signData("PolyPay Signer Identity", {
       encoding: "text",
@@ -70,6 +100,7 @@ export default function App() {
     return secret;
   }, []);
 
+  // Connect wallet + restore session
   const connectWallet = useCallback(async () => {
     try {
       setPhase("connecting");
@@ -81,17 +112,36 @@ export default function App() {
       setMySecret(toHex(secret));
       setMyCommitment(toHex(commitment));
 
-      await providers.privateStateProvider.set(
-        "polyPayPrivateState" as any,
-        createPolyPayPrivateState(secret) as any,
-      );
+      await providers.privateStateProvider.set("polyPayPrivateState" as any, createPolyPayPrivateState(secret) as any);
+      await providers.privateStateProvider.set("tokenPrivateState" as any, createTokenPrivateState(secret) as any);
 
+      setMyAddress(toHex(getUnshieldedAddressBytes()));
+
+      // Restore token contract
+      const savedTokenAddr = loadTokenAddress();
+      if (savedTokenAddr) {
+        try {
+          const tApi = await TokenAPI.join(providers as any, savedTokenAddr);
+          setTokenApi(tApi);
+          setTokenAddress(tApi.deployedContractAddress);
+          const info = await tApi.getTokenInfo();
+          const colorHex = toHex(info.color);
+          if (colorHex !== "0".repeat(64)) setTokenColor(colorHex);
+          if (info.name) setTokenName(info.name);
+          if (info.symbol) setTokenSymbol(info.symbol);
+        } catch (e) {
+          console.warn("Failed to restore token contract:", e);
+        }
+      }
+
+      // Restore multisig contract
       const savedAddr = loadContractAddress();
       if (savedAddr) {
         setWorkingMsg("Rejoining contract...");
         const payApi = await PolyPayAPI.join(providers, savedAddr);
         setApi(payApi);
         setContractAddress(payApi.deployedContractAddress);
+        setMode("wallet");
         setPhase("dashboard");
       } else {
         setPhase("setup");
@@ -103,13 +153,38 @@ export default function App() {
     }
   }, [restoreOrDeriveSecret]);
 
+  // ─── Token Actions ──────────────────────────────────────────────────
+
+  const deployToken = useCallback(async () => {
+    setIsWorking(true);
+    setWorkingMsg("Deploying token contract...");
+    setTxStatus("");
+    try {
+      const providers = await getProviders();
+      const tApi = await TokenAPI.deploy(providers as any, tokenName, tokenSymbol);
+      setTokenApi(tApi);
+      setTokenAddress(tApi.deployedContractAddress);
+      saveTokenAddress(tApi.deployedContractAddress);
+      setTxStatus("Token contract deployed");
+    } catch (e) {
+      console.error("Deploy token failed:", e);
+      setTxStatus(`Deploy token failed: ${formatError(e)}`);
+    } finally {
+      setIsWorking(false);
+      setWorkingMsg("");
+    }
+  }, [tokenName, tokenSymbol]);
+
+  // ─── Wallet Actions ─────────────────────────────────────────────────
+
   const deployContract = useCallback(async () => {
+    if (!tokenColorInput) return;
     setIsWorking(true);
     setWorkingMsg("Deploying PolyPay contract...");
     setTxStatus("");
     try {
       const providers = await getProviders();
-      const payApi = await PolyPayAPI.deploy(providers, BigInt(threshold));
+      const payApi = await PolyPayAPI.deploy(providers, BigInt(threshold), hexToBytes(tokenColorInput));
       setApi(payApi);
       setContractAddress(payApi.deployedContractAddress);
       saveContractAddress(payApi.deployedContractAddress);
@@ -122,7 +197,7 @@ export default function App() {
       setIsWorking(false);
       setWorkingMsg("");
     }
-  }, [threshold]);
+  }, [threshold, tokenColorInput]);
 
   const joinContract = useCallback(async () => {
     if (!joinAddr.trim()) return;
@@ -181,6 +256,15 @@ export default function App() {
     }
   }, [api]);
 
+  const refreshTokenColor = useCallback(async () => {
+    if (!tokenApi) return;
+    try {
+      const color = await tokenApi.getTokenColor();
+      const hex = toHex(color);
+      if (hex !== "0".repeat(64)) setTokenColor(hex);
+    } catch {}
+  }, [tokenApi]);
+
   const doAction = useCallback(async (label: string, fn: () => Promise<void>) => {
     setIsWorking(true);
     setWorkingMsg(`${label}...`);
@@ -188,6 +272,7 @@ export default function App() {
     try {
       await fn();
       setTxStatus(`${label} -- success`);
+      if (mode === "token") await refreshTokenColor();
     } catch (e) {
       console.error(`${label} failed:`, e);
       setTxStatus(`Failed: ${formatError(e)}`);
@@ -195,7 +280,12 @@ export default function App() {
       setIsWorking(false);
       setWorkingMsg("");
     }
-  }, []);
+  }, [mode, refreshTokenColor]);
+
+  // Auto-fill token color when switching to wallet mode
+  useEffect(() => {
+    if (tokenColor && !tokenColorInput) setTokenColorInput(tokenColor);
+  }, [tokenColor, tokenColorInput]);
 
   // ─── RENDER: Connect Phase ──────────────────────────────────────────
 
@@ -210,24 +300,15 @@ export default function App() {
             <div className="w-16 h-16 gradient-btn rounded-xl flex items-center justify-center mb-6 shadow-lg shadow-primary-container/20">
               <Icon name="toll" filled className="text-on-primary text-4xl" />
             </div>
-            <h1 className="font-headline font-black text-4xl tracking-tighter text-on-surface mb-2">
-              PolyPay
-            </h1>
-            <p className="text-on-surface-variant font-body text-lg">
-              Private Multisig Wallet on Midnight
-            </p>
+            <h1 className="font-headline font-black text-4xl tracking-tighter text-on-surface mb-2">PolyPay</h1>
+            <p className="text-on-surface-variant font-body text-lg">Private Multisig Wallet on Midnight</p>
             <div className="w-full h-px bg-gradient-to-r from-transparent via-outline-variant/20 to-transparent my-10" />
             <div className="w-full space-y-4">
-              <button
-                onClick={connectWallet}
-                className="w-full gradient-btn text-on-primary font-headline font-bold text-lg py-5 px-8 rounded-xl transition-all duration-300 hover:scale-[1.02] active:scale-[0.98] flex items-center justify-center gap-3 shadow-lg shadow-primary-container/20"
-              >
+              <button onClick={connectWallet} className="w-full gradient-btn text-on-primary font-headline font-bold text-lg py-5 px-8 rounded-xl transition-all duration-300 hover:scale-[1.02] active:scale-[0.98] flex items-center justify-center gap-3 shadow-lg shadow-primary-container/20">
                 <Icon name="account_balance_wallet" />
                 Connect Lace Wallet
               </button>
-              <p className="text-on-surface-variant/60 font-label text-sm tracking-wide">
-                SECURED BY ZERO-KNOWLEDGE PROOFS
-              </p>
+              <p className="text-on-surface-variant/60 font-label text-sm tracking-wide">SECURED BY ZERO-KNOWLEDGE PROOFS</p>
             </div>
             {error && (
               <div className="mt-8 w-full bg-error-container/10 border border-error/20 rounded-xl p-4 text-left flex items-start gap-3">
@@ -253,8 +334,6 @@ export default function App() {
     );
   }
 
-  // ─── RENDER: Connecting Phase ───────────────────────────────────────
-
   if (phase === "connecting") {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center font-body text-on-surface">
@@ -269,44 +348,70 @@ export default function App() {
     );
   }
 
-  // ─── RENDER: Sidebar Layout (setup, init-signers, dashboard) ───────
+  // ─── RENDER: Sidebar Layout ─────────────────────────────────────────
 
   const breadcrumbMap: Record<string, string> = {
+    "token-info": "Token",
+    "token-mint": "Mint Tokens",
     setup: "Setup",
     "init-signers": "Add Signers",
     overview: "Dashboard",
-    mint: "Mint Tokens",
+    deposit: "Deposit",
     "propose-transfer": "Propose Transfer",
     "propose-signer": "Manage Signers",
     transactions: "Transactions",
   };
-  const breadcrumb = phase === "dashboard" ? breadcrumbMap[tab] : breadcrumbMap[phase];
+
+  const currentTab = mode === "token" ? tokenTab : walletTab;
+  const breadcrumb = phase === "dashboard" || mode === "token"
+    ? breadcrumbMap[currentTab] || currentTab
+    : breadcrumbMap[phase] || phase;
+
+  const isInteractive = mode === "token" ? !!tokenAddress : phase === "dashboard";
 
   return (
     <div className="flex min-h-screen bg-background text-on-surface font-body">
       <Sidebar
-        activeTab={tab}
-        onTabChange={(t) => {
-          if (phase === "dashboard") {
-            setTab(t);
-            setTxStatus("");
-          }
-        }}
+        mode={mode}
+        onModeChange={(m) => { setMode(m); setTxStatus(""); }}
+        activeTokenTab={tokenTab}
+        activeWalletTab={walletTab}
+        onTokenTabChange={(t) => { setTokenTab(t); setTxStatus(""); }}
+        onWalletTabChange={(t) => { setWalletTab(t); setTxStatus(""); }}
         address={myCommitment || undefined}
-        interactive={phase === "dashboard"}
+        interactive={isInteractive}
       />
 
       <div className="ml-64 flex-1 flex flex-col min-h-screen relative">
         <PageHeader breadcrumb={breadcrumb} />
 
         <main className="flex-1 p-8 max-w-5xl w-full mx-auto space-y-6">
-          {/* Setup Phase */}
-          {phase === "setup" && (
+          {/* ── Token Mode ─────────────────────────────────────── */}
+          {mode === "token" && (
+            <TokenPage
+              tab={tokenTab}
+              tokenApi={tokenApi}
+              tokenAddress={tokenAddress}
+              tokenColor={tokenColor}
+              tokenName={tokenName}
+              tokenSymbol={tokenSymbol}
+              myAddress={myAddress}
+              isWorking={isWorking}
+              doAction={doAction}
+              onDeploy={deployToken}
+              onNameChange={setTokenName}
+              onSymbolChange={setTokenSymbol}
+            />
+          )}
+
+          {/* ── Wallet Mode: Setup ─────────────────────────────── */}
+          {mode === "wallet" && phase === "setup" && (
             <>
               <div className="space-y-2 mb-8">
-                <h2 className="text-4xl font-headline font-extrabold tracking-tight">Setup PolyPay</h2>
+                <h2 className="text-4xl font-headline font-extrabold tracking-tight">Setup Multisig</h2>
                 <p className="text-on-surface-variant max-w-2xl">
-                  Deploy a new private multisig vault or join an existing contract on the Midnight Network.
+                  Deploy a new multisig vault or join an existing one. You need a token color from
+                  a deployed token contract.
                 </p>
               </div>
               {mySecret && <IdentityCard secret={mySecret} commitment={myCommitment} />}
@@ -317,15 +422,29 @@ export default function App() {
                   <p className="text-on-surface-variant text-sm mb-6">Initialize your private vault on the Midnight Network.</p>
                   <div className="space-y-4">
                     <div>
+                      <label className="block text-sm font-headline font-bold text-outline mb-2">Token Color</label>
+                      <input
+                        placeholder="Token color hex (from token contract)"
+                        value={tokenColorInput}
+                        onChange={(e) => setTokenColorInput(e.target.value)}
+                        className="w-full bg-surface-container-lowest border-none rounded-xl py-4 px-5 text-on-surface font-label text-sm focus:ring-2 focus:ring-primary/50 transition-all outline-none placeholder:text-outline/40"
+                      />
+                      {tokenColor && !tokenColorInput && (
+                        <button onClick={() => setTokenColorInput(tokenColor)} className="mt-1 text-xs text-primary hover:underline">
+                          Use deployed token color
+                        </button>
+                      )}
+                    </div>
+                    <div>
                       <label className="block text-sm font-headline font-bold text-outline mb-2">Approval Threshold</label>
                       <input type="number" value={threshold} onChange={(e) => setThreshold(e.target.value)} min="1" max="10"
                         className="w-full bg-surface-container-lowest border-none rounded-xl py-4 px-5 text-on-surface font-label text-lg focus:ring-2 focus:ring-primary/50 transition-all outline-none" />
                       <div className="mt-2 flex items-start gap-2 px-1">
                         <Icon name="info" className="text-primary text-sm mt-0.5" />
-                        <p className="text-xs text-on-surface-variant">You will be added as the first signer. The threshold defines how many signatures are needed to execute transactions.</p>
+                        <p className="text-xs text-on-surface-variant">You will be added as the first signer. The threshold defines how many signatures are needed.</p>
                       </div>
                     </div>
-                    <button onClick={deployContract} disabled={isWorking}
+                    <button onClick={deployContract} disabled={isWorking || !tokenColorInput}
                       className="w-full py-4 rounded-xl gradient-btn text-on-primary font-headline font-extrabold text-lg shadow-xl shadow-primary-container/20 hover:brightness-110 active:scale-[0.98] transition-all disabled:opacity-50">
                       Deploy Multisig Vault
                     </button>
@@ -340,10 +459,6 @@ export default function App() {
                       <label className="block text-sm font-headline font-bold text-outline mb-2">Contract Address</label>
                       <input placeholder="0x..." value={joinAddr} onChange={(e) => setJoinAddr(e.target.value)}
                         className="w-full bg-surface-container-lowest border-none rounded-xl py-4 px-5 text-on-surface font-label text-lg focus:ring-2 focus:ring-primary/50 transition-all outline-none placeholder:text-outline/40" />
-                      <div className="mt-2 flex items-center gap-2 px-1">
-                        <Icon name="info" className="text-tertiary text-sm" />
-                        <span className="text-xs text-on-surface-variant italic">Verify the address on the Midnight Explorer.</span>
-                      </div>
                     </div>
                     <button onClick={joinContract} disabled={isWorking || !joinAddr.trim()}
                       className="w-full py-4 rounded-xl gradient-btn text-on-primary font-headline font-extrabold text-lg shadow-xl shadow-primary-container/20 hover:brightness-110 active:scale-[0.98] transition-all disabled:opacity-50 flex items-center justify-center gap-2">
@@ -355,13 +470,13 @@ export default function App() {
             </>
           )}
 
-          {/* Init Signers Phase */}
-          {phase === "init-signers" && (
+          {/* ── Wallet Mode: Init Signers ──────────────────────── */}
+          {mode === "wallet" && phase === "init-signers" && (
             <>
               <div className="space-y-2 mb-4">
                 <h2 className="text-4xl font-headline font-extrabold tracking-tight">Add Signers</h2>
                 <p className="text-on-surface-variant max-w-2xl">
-                  Define the multisig participants who will authorize future configuration changes. This ensures decentralized security for the Midnight Network protocol.
+                  Define the multisig participants. This ensures decentralized security for the Midnight Network protocol.
                 </p>
               </div>
               <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
@@ -399,22 +514,12 @@ export default function App() {
                     <Icon name="warning" className="text-tertiary mt-1" />
                     <div className="flex flex-col gap-1">
                       <span className="font-headline font-bold text-tertiary leading-none">Security Protocol Warning</span>
-                      <p className="text-sm text-on-tertiary-container/80">After finalizing, only multisig proposals can change signers. Ensure all commitments are correct before proceeding.</p>
+                      <p className="text-sm text-on-tertiary-container/80">After finalizing, only multisig proposals can change signers.</p>
                     </div>
                   </div>
                 </div>
                 <div className="lg:col-span-4 flex flex-col gap-6">
                   <IdentityCard secret={mySecret} commitment={myCommitment} />
-                  <div className="bg-surface-container-low rounded-2xl p-6">
-                    <h4 className="font-headline font-bold text-on-surface mb-4 flex items-center gap-2">
-                      <Icon name="gavel" className="text-primary text-sm" /> Multisig Policy
-                    </h4>
-                    <ul className="flex flex-col gap-3">
-                      <li className="flex gap-3 text-sm"><Icon name="check_circle" className="text-outline text-lg" /><span className="text-on-surface-variant">Add all required signers before finalizing.</span></li>
-                      <li className="flex gap-3 text-sm"><Icon name="check_circle" className="text-outline text-lg" /><span className="text-on-surface-variant">Threshold determines required approvals per transaction.</span></li>
-                      <li className="flex gap-3 text-sm"><Icon name="check_circle" className="text-outline text-lg" /><span className="text-on-surface-variant">All signers have equal cryptographic weight.</span></li>
-                    </ul>
-                  </div>
                   <div className="mt-auto">
                     <button onClick={doFinalize} disabled={isWorking}
                       className="w-full gradient-btn text-on-primary font-headline font-extrabold py-5 rounded-2xl flex items-center justify-center gap-3 shadow-xl shadow-primary-container/20 hover:brightness-110 active:scale-[0.98] transition-all disabled:opacity-50">
@@ -427,14 +532,14 @@ export default function App() {
             </>
           )}
 
-          {/* Dashboard Phase */}
-          {phase === "dashboard" && (
+          {/* ── Wallet Mode: Dashboard ─────────────────────────── */}
+          {mode === "wallet" && phase === "dashboard" && (
             <>
-              {tab === "overview" && <DashboardOverview state={state} contractAddress={contractAddress} mySecret={mySecret} myCommitment={myCommitment} onNavigate={setTab} />}
-              {tab === "mint" && <MintTab api={api!} doAction={doAction} />}
-              {tab === "propose-transfer" && <ProposeTransferTab api={api!} doAction={doAction} />}
-              {tab === "propose-signer" && <ProposeSignerTab api={api!} doAction={doAction} myCommitment={myCommitment} />}
-              {tab === "transactions" && <TransactionsTab api={api!} doAction={doAction} />}
+              {walletTab === "overview" && <DashboardOverview state={state} api={api} contractAddress={contractAddress} tokenColor={tokenColor} mySecret={mySecret} myCommitment={myCommitment} onNavigate={setWalletTab} />}
+              {walletTab === "deposit" && api && <DepositTab api={api} doAction={doAction} />}
+              {walletTab === "propose-transfer" && api && <ProposeTransferTab api={api} doAction={doAction} />}
+              {walletTab === "propose-signer" && api && <ProposeSignerTab api={api} doAction={doAction} myCommitment={myCommitment} />}
+              {walletTab === "transactions" && api && <TransactionsTab api={api} doAction={doAction} />}
             </>
           )}
 

@@ -23,7 +23,7 @@ export interface DeployedPolyPayAPI {
   finalize: () => Promise<void>;
 
   // Token
-  mint: (amount: bigint) => Promise<void>;
+  deposit: (amount: bigint) => Promise<void>;
 
   // Propose
   proposeTransfer: (to: Uint8Array, amount: bigint) => Promise<void>;
@@ -41,8 +41,7 @@ export interface DeployedPolyPayAPI {
   executeSetThreshold: (txId: bigint) => Promise<void>;
 
   // Read
-  deriveCommitment: () => Promise<Uint8Array>;
-  getSecret: () => Promise<Uint8Array>;
+  getVaultBalance: (tokenColor: string) => Promise<bigint>;
   getTransactionList: () => Promise<TransactionInfo[]>;
   getSignerList: () => Promise<Uint8Array[]>;
 }
@@ -63,7 +62,7 @@ export class PolyPayAPI implements DeployedPolyPayAPI {
         map((contractState) => {
           const l = PolyPay.ledger(contractState.data);
           return {
-            totalSupply: l.totalSupply,
+            tokenColor: l.tokenColor,
             signerCount: l.signerCount,
             threshold: l.threshold,
             finalized: l.finalized,
@@ -88,15 +87,15 @@ export class PolyPayAPI implements DeployedPolyPayAPI {
   }
 
   // Token
-  async mint(amount: bigint): Promise<void> {
-    this.logger?.info({ amount }, "mint");
-    await this.deployedContract.callTx.mint(amount);
+  async deposit(amount: bigint): Promise<void> {
+    this.logger?.info({ amount }, "deposit");
+    await this.deployedContract.callTx.deposit(amount);
   }
 
   // Propose
   async proposeTransfer(to: Uint8Array, amount: bigint): Promise<void> {
     this.logger?.info("proposeTransfer");
-    await this.deployedContract.callTx.proposeTransfer(to, amount);
+    await this.deployedContract.callTx.proposeTransfer({ bytes: to }, amount);
   }
 
   async proposeAddSigner(commitment: Uint8Array): Promise<void> {
@@ -142,14 +141,11 @@ export class PolyPayAPI implements DeployedPolyPayAPI {
   }
 
   // Read
-  async deriveCommitment(): Promise<Uint8Array> {
-    const ps = await PolyPayAPI.getPrivateState(this.providers);
-    return PolyPay.pureCircuits.deriveCommitment(ps.secret);
-  }
-
-  async getSecret(): Promise<Uint8Array> {
-    const ps = await PolyPayAPI.getPrivateState(this.providers);
-    return ps.secret;
+  async getVaultBalance(tokenColor: string): Promise<bigint> {
+    const balances = await this.providers.publicDataProvider.queryUnshieldedBalances(this.deployedContractAddress);
+    if (!balances) return 0n;
+    const entry = balances.find((b) => b.tokenType === tokenColor);
+    return entry?.balance ?? 0n;
   }
 
   async getTransactionList(): Promise<TransactionInfo[]> {
@@ -183,13 +179,18 @@ export class PolyPayAPI implements DeployedPolyPayAPI {
   }
 
   // Deploy & Join
-  static async deploy(providers: PolyPayProviders, threshold: bigint, logger?: Logger): Promise<PolyPayAPI> {
+  static async deploy(
+    providers: PolyPayProviders,
+    threshold: bigint,
+    tokenColor: Uint8Array,
+    logger?: Logger,
+  ): Promise<PolyPayAPI> {
     logger?.info("deployContract");
     const deployedContract = await deployContract(providers, {
       compiledContract: CompiledPolyPayContract,
       privateStateId: polyPayPrivateStateKey,
       initialPrivateState: await PolyPayAPI.getPrivateState(providers),
-      args: [threshold],
+      args: [threshold, tokenColor],
     });
     logger?.info({ address: deployedContract.deployTxData.public.contractAddress }, "contractDeployed");
     return new PolyPayAPI(deployedContract, providers, logger);
@@ -218,4 +219,5 @@ export class PolyPayAPI implements DeployedPolyPayAPI {
 }
 
 export * from "./common-types.js";
+export { TokenAPI, type DeployedTokenAPI } from "./token-api.js";
 export { utils };

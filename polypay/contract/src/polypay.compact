@@ -7,8 +7,7 @@ import CompactStandardLibrary;
 // ============================================================
 
 // Token
-export ledger balances: Map<Bytes<32>, Uint<64>>;
-export ledger totalSupply: Counter;
+export ledger tokenColor: Bytes<32>;
 
 // Multisig
 export ledger signers: Set<Bytes<32>>;
@@ -26,7 +25,7 @@ export ledger txNullifiers: Set<Bytes<32>>;
 
 // Transaction Params
 export ledger txAmounts: Map<Uint<64>, Uint<64>>;
-export ledger txRecipients: Map<Uint<64>, Bytes<32>>;
+export ledger txRecipients: Map<Uint<64>, UserAddress>;
 export ledger txTargetSigners: Map<Uint<64>, Bytes<32>>;
 export ledger txNewThresholds: Map<Uint<64>, Uint<8>>;
 
@@ -53,12 +52,13 @@ export circuit computeNullifier(secret: Bytes<32>, txIdPad: Bytes<32>): Bytes<32
 // SETUP PHASE
 // ============================================================
 
-constructor(initialThreshold: Uint<8>) {
+constructor(initialThreshold: Uint<8>, color: Bytes<32>) {
   const secret = localSecret();
   const commitment = deriveCommitment(secret);
   owner = disclose(commitment);
   threshold = disclose(initialThreshold);
   finalized = disclose(false);
+  tokenColor = disclose(color);
   signers.insert(disclose(commitment));
   signerCount.increment(1);
 }
@@ -81,19 +81,13 @@ export circuit finalize(): [] {
 }
 
 // ============================================================
-// TOKEN
+// TOKEN (deposit native tokens into vault)
 // ============================================================
 
-export circuit mint(amount: Uint<16>): [] {
+export circuit deposit(amount: Uint<64>): [] {
   assert(disclose(amount) > 0, "Amount must be positive");
-  const vaultAddr = pad(32, "polypay:vault:");
-  if (balances.member(disclose(vaultAddr))) {
-    const current = balances.lookup(disclose(vaultAddr));
-    balances.insert(disclose(vaultAddr), disclose((current + disclose(amount)) as Uint<64>));
-  } else {
-    balances.insert(disclose(vaultAddr), disclose(disclose(amount) as Uint<64>));
-  }
-  totalSupply.increment(disclose(amount));
+  const color = tokenColor;
+  receiveUnshielded(disclose(color), disclose(amount));
 }
 
 
@@ -101,7 +95,7 @@ export circuit mint(amount: Uint<16>): [] {
 // PROPOSE (signer-only, auto-approve)
 // ============================================================
 
-export circuit proposeTransfer(to: Bytes<32>, amount: Uint<64>): Uint<64> {
+export circuit proposeTransfer(to: UserAddress, amount: Uint<64>): Uint<64> {
   assert(finalized == true, "Not finalized");
   const secret = localSecret();
   const commitment = deriveCommitment(secret);
@@ -193,7 +187,7 @@ export circuit approveTx(txId: Uint<64>): [] {
 }
 
 // ============================================================
-// EXECUTE (anyone, when threshold met)
+// EXECUTE (signer-only, when threshold met)
 // ============================================================
 
 export circuit executeTransfer(txId: Uint<64>): [] {
@@ -208,17 +202,12 @@ export circuit executeTransfer(txId: Uint<64>): [] {
   assert(txApprovalCounts.lookup(disclose(txId)).read() >= threshold, "Not enough approvals");
   const to = txRecipients.lookup(disclose(txId));
   const amount = txAmounts.lookup(disclose(txId));
-  const vaultAddr = pad(32, "polypay:vault:");
-  assert(balances.member(disclose(vaultAddr)), "Vault empty");
-  const vaultBal = balances.lookup(disclose(vaultAddr));
-  assert(vaultBal >= amount, "Insufficient vault balance");
-  balances.insert(disclose(vaultAddr), disclose((vaultBal - amount) as Uint<64>));
-  if (balances.member(to)) {
-    const recipBal = balances.lookup(to);
-    balances.insert(to, disclose((recipBal + amount) as Uint<64>));
-  } else {
-    balances.insert(to, amount);
-  }
+  const color = tokenColor;
+  sendUnshielded(
+    disclose(color),
+    amount,
+    right<ContractAddress, UserAddress>(to)
+  );
   txStatuses.insert(disclose(txId), disclose(1 as Uint<8>));
 }
 
@@ -275,4 +264,3 @@ export circuit executeSetThreshold(txId: Uint<64>): [] {
   threshold = disclose(newVal);
   txStatuses.insert(disclose(txId), disclose(1 as Uint<8>));
 }
-

@@ -25,12 +25,14 @@ import {
 } from "@midnight-ntwrk/ledger-v7";
 import { inMemoryPrivateStateProvider } from "./in-memory-private-state-provider.js";
 import { type UnboundTransaction } from "@midnight-ntwrk/midnight-js-types";
+import { MidnightBech32m, UnshieldedAddress } from "@midnight-ntwrk/wallet-sdk-address-format";
 import semver from "semver";
 
 const COMPATIBLE_CONNECTOR_API_VERSION = "4.x";
 
 let cachedProviders: Promise<PolyPayProviders> | undefined;
 let cachedConnectedAPI: ConnectedAPI | undefined;
+let cachedUnshieldedAddress: Uint8Array | undefined;
 
 export const getProviders = (): Promise<PolyPayProviders> => {
   return cachedProviders ?? (cachedProviders = initializeProviders());
@@ -39,6 +41,11 @@ export const getProviders = (): Promise<PolyPayProviders> => {
 export const getConnectedAPI = (): ConnectedAPI => {
   if (!cachedConnectedAPI) throw new Error("Wallet not connected");
   return cachedConnectedAPI;
+};
+
+export const getUnshieldedAddressBytes = (): Uint8Array => {
+  if (!cachedUnshieldedAddress) throw new Error("Wallet not connected");
+  return cachedUnshieldedAddress;
 };
 
 const initializeProviders = async (): Promise<PolyPayProviders> => {
@@ -51,6 +58,11 @@ const initializeProviders = async (): Promise<PolyPayProviders> => {
   console.log("[providers] Wallet config:", JSON.stringify(config, null, 2));
   const privateStateProvider = inMemoryPrivateStateProvider<string, PolyPayPrivateState>();
   const shieldedAddresses = await connectedAPI.getShieldedAddresses();
+
+  const { unshieldedAddress } = await connectedAPI.getUnshieldedAddress();
+  const parsed = MidnightBech32m.parse(unshieldedAddress);
+  const decoded = parsed.decode(UnshieldedAddress, networkId);
+  cachedUnshieldedAddress = new Uint8Array(decoded.data);
 
   return {
     privateStateProvider,

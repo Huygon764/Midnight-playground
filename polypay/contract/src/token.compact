@@ -1,0 +1,35 @@
+pragma language_version >= 0.20;
+
+import CompactStandardLibrary;
+
+export ledger tokenColor: Bytes<32>;
+export ledger totalMinted: Counter;
+export ledger tokenName: Opaque<"string">;
+export ledger tokenSymbol: Opaque<"string">;
+
+witness localSecret(): Bytes<32>;
+
+export circuit deriveCommitment(secret: Bytes<32>): Bytes<32> {
+  return persistentHash<Vector<2, Bytes<32>>>([pad(32, "token:pk:"), secret]);
+}
+
+constructor(name: Opaque<"string">, symbol: Opaque<"string">) {
+  const secret = localSecret();
+  tokenColor = disclose(pad(32, ""));
+  tokenName = disclose(name);
+  tokenSymbol = disclose(symbol);
+}
+
+export circuit mint(amount: Uint<64>, to: UserAddress): [] {
+  const secret = localSecret();
+  const commitment = deriveCommitment(secret);
+  assert(disclose(amount) > 0, "Amount must be positive");
+  const domain = pad(32, "polypay:token:");
+  const color = mintUnshieldedToken(
+    disclose(domain),
+    disclose(amount),
+    right<ContractAddress, UserAddress>(disclose(to))
+  );
+  tokenColor = disclose(color);
+  totalMinted.increment(disclose(amount as Uint<16>));
+}

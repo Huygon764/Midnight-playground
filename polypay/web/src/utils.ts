@@ -2,6 +2,7 @@ import { toHex } from "@midnight-ntwrk/midnight-js-utils";
 
 const STORAGE_KEY = "polypay:secret";
 const CONTRACT_KEY = "polypay:contract";
+const TOKEN_KEY = "polypay:token-contract";
 
 export function formatError(e: unknown): string {
   console.error("[formatError] Full error object:", e);
@@ -54,6 +55,14 @@ export function loadContractAddress(): string | null {
   return localStorage.getItem(CONTRACT_KEY);
 }
 
+export function saveTokenAddress(address: string) {
+  localStorage.setItem(TOKEN_KEY, address);
+}
+
+export function loadTokenAddress(): string | null {
+  return localStorage.getItem(TOKEN_KEY);
+}
+
 export function clearSession() {
   localStorage.removeItem(CONTRACT_KEY);
 }
@@ -61,6 +70,7 @@ export function clearSession() {
 export function clearAll() {
   localStorage.removeItem(STORAGE_KEY);
   localStorage.removeItem(CONTRACT_KEY);
+  localStorage.removeItem(TOKEN_KEY);
 }
 
 export function truncateHex(hex: string): string {
