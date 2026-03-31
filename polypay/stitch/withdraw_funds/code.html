@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>PolyPay - Withdraw Personal Funds</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&amp;family=Inter:wght@400;500&amp;family=Space+Grotesk:wght@400;500&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              "surface-container": "#1f1f25",
+              "primary-container": "#622ccc",
+              "on-tertiary-container": "#ffb79d",
+              "primary-fixed": "#e9ddff",
+              "outline": "#948da2",
+              "surface-container-lowest": "#0e0e13",
+              "primary-fixed-dim": "#d0bcff",
+              "tertiary": "#ffb59a",
+              "tertiary-container": "#963200",
+              "secondary-container": "#444173",
+              "inverse-primary": "#6d3bd7",
+              "background": "#131318",
+              "tertiary-fixed": "#ffdbcf",
+              "surface-tint": "#d0bcff",
+              "secondary-fixed": "#e3dfff",
+              "on-primary-fixed-variant": "#5516be",
+              "on-secondary-fixed": "#181445",
+              "secondary": "#c4c1fb",
+              "on-secondary": "#2d2a5b",
+              "outline-variant": "#494456",
+              "on-primary-container": "#d2beff",
+              "surface-dim": "#131318",
+              "surface-container-highest": "#35343a",
+              "surface-container-high": "#2a292f",
+              "secondary-fixed-dim": "#c4c1fb",
+              "error-container": "#93000a",
+              "primary": "#d0bcff",
+              "error": "#ffb4ab",
+              "on-tertiary-fixed": "#380d00",
+              "surface": "#131318",
+              "on-surface": "#e4e1e9",
+              "on-tertiary-fixed-variant": "#802a00",
+              "on-primary-fixed": "#23005c",
+              "inverse-surface": "#e4e1e9",
+              "on-background": "#e4e1e9",
+              "on-surface-variant": "#cbc3d9",
+              "on-secondary-fixed-variant": "#444173",
+              "surface-variant": "#35343a",
+              "on-tertiary": "#5b1b00",
+              "on-secondary-container": "#b3afe9",
+              "surface-container-low": "#1b1b20",
+              "on-error": "#690005",
+              "on-error-container": "#ffdad6",
+              "tertiary-fixed-dim": "#ffb59a",
+              "on-primary": "#3c0091",
+              "inverse-on-surface": "#303036",
+              "surface-bright": "#39383e"
+            },
+            fontFamily: {
+              "headline": ["Manrope"],
+              "body": ["Inter"],
+              "label": ["Space Grotesk"]
+            },
+            borderRadius: {"DEFAULT": "0.25rem", "lg": "0.5rem", "xl": "0.75rem", "full": "9999px"},
+          },
+        },
+      }
+    </script>
+<style>
+      body {
+        background-color: #131318;
+        color: #e4e1e9;
+      }
+      .material-symbols-outlined {
+        font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+      }
+      .glass-panel {
+        background: rgba(53, 52, 58, 0.6);
+        backdrop-filter: blur(24px);
+      }
+      .primary-gradient {
+        background: linear-gradient(135deg, #d0bcff 0%, #622ccc 100%);
+      }
+    </style>
+</head>
+<body class="font-body selection:bg-primary-container selection:text-primary">
+<!-- SideNavBar -->
+<aside class="h-screen w-64 fixed left-0 top-0 flex flex-col bg-[#0e0e13] dark:bg-[#0e0e13] py-8 px-4 gap-6 z-50">
+<div class="flex flex-col gap-1 mb-4">
+<span class="text-2xl font-black text-[#e4e1e9] tracking-tighter font-headline">PolyPay</span>
+<span class="text-xs font-label text-outline uppercase tracking-widest">Midnight Network</span>
+</div>
+<nav class="flex flex-col gap-2 flex-grow">
+<a class="flex items-center gap-3 px-4 py-3 rounded-xl text-[#938f99] hover:text-[#e4e1e9] hover:bg-[#1f1f25] transition-all duration-200 group" href="#">
+<span class="material-symbols-outlined text-lg">dashboard</span>
+<span class="font-headline font-semibold text-sm">Dashboard</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 rounded-xl text-[#938f99] hover:text-[#e4e1e9] hover:bg-[#1f1f25] transition-all duration-200 group" href="#">
+<span class="material-symbols-outlined text-lg">toll</span>
+<span class="font-headline font-semibold text-sm">Mint</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 rounded-xl text-[#938f99] hover:text-[#e4e1e9] hover:bg-[#1f1f25] transition-all duration-200 group" href="#">
+<span class="material-symbols-outlined text-lg">add_circle</span>
+<span class="font-headline font-semibold text-sm">Propose</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 rounded-xl text-[#938f99] hover:text-[#e4e1e9] hover:bg-[#1f1f25] transition-all duration-200 group" href="#">
+<span class="material-symbols-outlined text-lg">history</span>
+<span class="font-headline font-semibold text-sm">Transactions</span>
+</a>
+<!-- Active Tab: Withdraw -->
+<a class="flex items-center gap-3 px-4 py-3 rounded-xl text-[#d0bcff] font-bold border-r-4 border-[#6200EE] bg-white/5 transition-all duration-200 scale-95" href="#">
+<span class="material-symbols-outlined text-lg">payments</span>
+<span class="font-headline text-sm">Withdraw</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 rounded-xl text-[#938f99] hover:text-[#e4e1e9] hover:bg-[#1f1f25] transition-all duration-200 group" href="#">
+<span class="material-symbols-outlined text-lg">settings</span>
+<span class="font-headline font-semibold text-sm">Settings</span>
+</a>
+</nav>
+<div class="mt-auto flex flex-col gap-4">
+<div class="flex items-center justify-between px-4 py-3 rounded-xl bg-surface-container-low">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-secondary text-sm">content_copy</span>
+<span class="font-label text-xs text-on-surface-variant">0x1a...4f2e</span>
+</div>
+</div>
+<button class="w-full py-3 rounded-xl border border-outline-variant/20 text-on-surface-variant text-sm font-semibold hover:bg-surface-container transition-colors active:scale-95">
+                Disconnect
+            </button>
+</div>
+</aside>
+<!-- TopAppBar -->
+<header class="w-full h-16 sticky top-0 z-40 bg-transparent flex justify-between items-center ml-64 px-8 w-[calc(100%-16rem)]">
+<div class="flex items-center gap-2 text-outline text-sm">
+<span>PolyPay</span>
+<span class="material-symbols-outlined text-xs">chevron_right</span>
+<span class="text-on-surface font-semibold">Withdraw</span>
+</div>
+<div class="flex items-center gap-6">
+<div class="flex items-center gap-4">
+<span class="material-symbols-outlined text-on-surface-variant hover:text-primary transition-colors cursor-pointer">notifications</span>
+<span class="material-symbols-outlined text-on-surface-variant hover:text-primary transition-colors cursor-pointer">account_balance_wallet</span>
+</div>
+<div class="w-8 h-8 rounded-full bg-surface-container-highest overflow-hidden">
+<img alt="User Profile" class="w-full h-full object-cover" data-alt="abstract profile avatar representing a user in a modern tech interface with minimalist geometric patterns" src="https://lh3.googleusercontent.com/aida-public/AB6AXuB_n95BiLffvNhWNgyJuGa5Vi4_jxb98BzyqoPQsALag3AuWviyQO3sZnYZTmA25EEw8SwFVh2X10CRvKmJlt2MqQ1wW_CPvVcb2KnPdRVDHt-HplsBBvYaNuHgvp_MQ6JtJMkYa3IrUeIv60lHBlkC2vqk1TF93vGMcEdbwW1SBSoVrRYL7f7u7RX4qXNcLkJIfFLNwIKQgiGJnLhLvd_F3HWddtjT-xfLciSIKl4gqnE0-Uy51jLsttQEz1eQzfAVgHsIHl1saI0"/>
+</div>
+</div>
+</header>
+<!-- Main Content Canvas -->
+<main class="ml-64 p-12 min-h-[calc(100vh-4rem)] flex flex-col items-center">
+<div class="w-full max-w-4xl space-y-12">
+<!-- Header Section -->
+<div class="space-y-2">
+<h1 class="text-4xl font-headline font-extrabold tracking-tight text-on-surface">Withdraw Personal Funds</h1>
+<p class="text-on-surface-variant font-body text-lg max-w-2xl">
+                    Withdraw tokens from your personal balance (not the vault). These funds are instantly available for transfer to external Midnight-compatible addresses.
+                </p>
+</div>
+<!-- Bento Layout / Form -->
+<div class="grid grid-cols-12 gap-6">
+<!-- Main Form Card -->
+<div class="col-span-12 lg:col-span-7 bg-surface-container-low rounded-3xl p-8 space-y-8 relative overflow-hidden">
+<div class="absolute top-0 right-0 w-32 h-32 bg-primary/5 rounded-full -mr-16 -mt-16 blur-3xl"></div>
+<div class="space-y-6">
+<div class="space-y-3">
+<label class="block font-headline font-bold text-sm text-outline uppercase tracking-wider ml-1">Recipient Address</label>
+<div class="relative group">
+<input class="w-full bg-surface-container border-none rounded-2xl py-4 px-5 font-label text-primary-fixed-dim placeholder:text-outline-variant focus:ring-2 focus:ring-primary/30 transition-all text-lg" placeholder="0x..." type="text"/>
+<span class="absolute right-4 top-1/2 -translate-y-1/2 material-symbols-outlined text-outline-variant group-focus-within:text-primary transition-colors">qr_code_scanner</span>
+</div>
+</div>
+<div class="space-y-3">
+<label class="block font-headline font-bold text-sm text-outline uppercase tracking-wider ml-1">Amount</label>
+<div class="relative group">
+<input class="w-full bg-surface-container border-none rounded-2xl py-4 px-5 font-label text-on-surface placeholder:text-outline-variant focus:ring-2 focus:ring-primary/30 transition-all text-2xl" placeholder="0.00" type="number"/>
+<div class="absolute right-4 top-1/2 -translate-y-1/2 flex items-center gap-3">
+<button class="px-3 py-1 bg-surface-container-highest rounded-lg text-xs font-headline font-bold text-primary hover:bg-primary/20 transition-colors uppercase">Max</button>
+<span class="text-on-surface font-headline font-bold pr-2">DUST</span>
+</div>
+</div>
+</div>
+</div>
+<button class="w-full primary-gradient py-5 rounded-2xl font-headline font-extrabold text-on-primary text-lg shadow-lg shadow-primary-container/20 active:scale-[0.98] transition-all flex items-center justify-center gap-2">
+                        Withdraw
+                        <span class="material-symbols-outlined">arrow_forward</span>
+</button>
+<p class="text-center text-xs font-body text-outline-variant">
+                        Personal funds withdrawals are subject to a 0.01% network fee.
+                    </p>
+</div>
+<!-- Info Column -->
+<div class="col-span-12 lg:col-span-5 flex flex-col gap-6">
+<!-- Balance Card -->
+<div class="bg-surface-container-highest rounded-3xl p-6 flex flex-col justify-between h-48 relative group overflow-hidden">
+<div class="absolute bottom-0 left-0 w-full h-1 bg-primary/20"></div>
+<div class="space-y-1">
+<p class="text-outline text-xs font-headline font-bold uppercase tracking-widest">Available Balance</p>
+<h3 class="text-3xl font-headline font-black text-on-surface">1,420.69 <span class="text-primary text-lg">DUST</span></h3>
+</div>
+<div class="flex items-center gap-2 mt-4 opacity-60 group-hover:opacity-100 transition-opacity">
+<span class="w-2 h-2 rounded-full bg-tertiary"></span>
+<span class="text-xs font-label text-tertiary">Requires 3 confirmations</span>
+</div>
+</div>
+<!-- Visual Accent Card -->
+<div class="flex-grow bg-surface-container-low rounded-3xl p-6 flex flex-col gap-4">
+<div class="h-32 rounded-2xl overflow-hidden relative">
+<img class="w-full h-full object-cover" data-alt="abstract visualization of secure network nodes connecting with soft glowing purple paths on a dark obsidian background" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDKdZu5JUja8bxVs1Ii9Ezlevj4uNUk0vDbLCIX7Pf9f5cio2R9M8lEusu8N3FnpcSr5wHJ_LlHMzAB2xFACafhGtYW3UbbBLZjkAwarJFCR_idt-VzemLZ6Zd8Cw3qnRbMKWUZZnxqyOHM5ope948qrFA-fQUsm0bBcnH5rwqh-VGsjS-3Rv3Q0HOd-wAzHUnTPjOEvI0xa5qi2JgnEWDyzAoQc81gy92v8493jKWxs6B122vfA8SFKwar_5EbjontBTYF4j1Bvgw"/>
+<div class="absolute inset-0 bg-gradient-to-t from-surface-container-low to-transparent"></div>
+</div>
+<div class="space-y-2">
+<h4 class="font-headline font-bold text-on-surface">Security Protocol</h4>
+<p class="text-sm text-on-surface-variant font-body leading-relaxed">
+                                Midnight's zero-knowledge proofs ensure your personal withdrawal details remain private while ensuring full network compliance.
+                            </p>
+</div>
+<a class="text-xs font-headline font-bold text-primary flex items-center gap-1 hover:underline mt-auto" href="#">
+                            Learn more about Midnight privacy
+                            <span class="material-symbols-outlined text-sm">open_in_new</span>
+</a>
+</div>
+</div>
+</div>
+<!-- Transaction History Preview (Optional / Minimal) -->
+<div class="space-y-4">
+<div class="flex justify-between items-end">
+<h2 class="text-xl font-headline font-bold text-on-surface">Recent Personal Activity</h2>
+<a class="text-sm font-headline font-bold text-outline hover:text-on-surface transition-colors" href="#">View All</a>
+</div>
+<div class="space-y-3">
+<div class="flex items-center justify-between p-4 bg-surface-container-low rounded-2xl">
+<div class="flex items-center gap-4">
+<div class="w-10 h-10 rounded-full bg-surface-container flex items-center justify-center">
+<span class="material-symbols-outlined text-primary">arrow_upward</span>
+</div>
+<div>
+<p class="font-headline font-bold text-sm text-on-surface">Withdrawal</p>
+<p class="font-label text-xs text-outline-variant">0x3f...9a21</p>
+</div>
+</div>
+<div class="text-right">
+<p class="font-label font-bold text-sm text-on-surface">- 50.00 DUST</p>
+<span class="px-2 py-0.5 rounded-full text-[10px] font-headline font-bold bg-green-500/10 text-green-400">SUCCESS</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+</main>
+</body></html>

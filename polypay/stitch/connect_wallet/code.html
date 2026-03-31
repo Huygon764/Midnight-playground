@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>PolyPay | Connect Wallet</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&amp;family=Inter:wght@400;500&amp;family=Space+Grotesk:wght@400;500&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              "surface-container": "#1f1f25",
+              "primary-container": "#622ccc",
+              "on-tertiary-container": "#ffb79d",
+              "primary-fixed": "#e9ddff",
+              "outline": "#948da2",
+              "surface-container-lowest": "#0e0e13",
+              "primary-fixed-dim": "#d0bcff",
+              "tertiary": "#ffb59a",
+              "tertiary-container": "#963200",
+              "secondary-container": "#444173",
+              "inverse-primary": "#6d3bd7",
+              "background": "#131318",
+              "tertiary-fixed": "#ffdbcf",
+              "surface-tint": "#d0bcff",
+              "secondary-fixed": "#e3dfff",
+              "on-primary-fixed-variant": "#5516be",
+              "on-secondary-fixed": "#181445",
+              "secondary": "#c4c1fb",
+              "on-secondary": "#2d2a5b",
+              "outline-variant": "#494456",
+              "on-primary-container": "#d2beff",
+              "surface-dim": "#131318",
+              "surface-container-highest": "#35343a",
+              "surface-container-high": "#2a292f",
+              "secondary-fixed-dim": "#c4c1fb",
+              "error-container": "#93000a",
+              "primary": "#d0bcff",
+              "error": "#ffb4ab",
+              "on-tertiary-fixed": "#380d00",
+              "surface": "#131318",
+              "on-surface": "#e4e1e9",
+              "on-tertiary-fixed-variant": "#802a00",
+              "on-primary-fixed": "#23005c",
+              "inverse-surface": "#e4e1e9",
+              "on-background": "#e4e1e9",
+              "on-surface-variant": "#cbc3d9",
+              "on-secondary-fixed-variant": "#444173",
+              "surface-variant": "#35343a",
+              "on-tertiary": "#5b1b00",
+              "on-secondary-container": "#b3afe9",
+              "surface-container-low": "#1b1b20",
+              "on-error": "#690005",
+              "on-error-container": "#ffdad6",
+              "tertiary-fixed-dim": "#ffb59a",
+              "on-primary": "#3c0091",
+              "inverse-on-surface": "#303036",
+              "surface-bright": "#39383e"
+            },
+            fontFamily: {
+              "headline": ["Manrope"],
+              "body": ["Inter"],
+              "label": ["Space Grotesk"]
+            },
+            borderRadius: {"DEFAULT": "0.25rem", "lg": "0.5rem", "xl": "0.75rem", "full": "9999px"},
+          },
+        },
+      }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+            display: inline-block;
+            vertical-align: middle;
+        }
+        .glass-panel {
+            background: rgba(53, 52, 58, 0.4);
+            backdrop-filter: blur(24px);
+            -webkit-backdrop-filter: blur(24px);
+        }
+        .brand-gradient {
+            background: linear-gradient(135deg, #d0bcff 0%, #622ccc 100%);
+        }
+        .bg-mesh {
+            background-color: #131318;
+            background-image: 
+                radial-gradient(at 0% 0%, rgba(109, 59, 215, 0.15) 0px, transparent 50%),
+                radial-gradient(at 100% 100%, rgba(53, 52, 58, 0.2) 0px, transparent 50%);
+        }
+    </style>
+</head>
+<body class="bg-mesh min-h-screen flex items-center justify-center p-6 text-on-surface font-body">
+<!-- Hero Background Element (Decorative) -->
+<div class="fixed inset-0 overflow-hidden -z-10 pointer-events-none">
+<div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] opacity-20 blur-[120px] rounded-full bg-primary-container"></div>
+</div>
+<main class="w-full max-w-lg">
+<!-- Connect Card -->
+<div class="glass-panel border border-outline-variant/15 rounded-xl p-10 md:p-12 shadow-2xl flex flex-col items-center text-center">
+<!-- Logo Section -->
+<div class="mb-8 flex flex-col items-center">
+<div class="w-16 h-16 brand-gradient rounded-xl flex items-center justify-center mb-6 shadow-lg shadow-primary-container/20">
+<span class="material-symbols-outlined text-on-primary text-4xl" data-icon="toll">toll</span>
+</div>
+<h1 class="font-headline font-black text-4xl tracking-tighter text-on-surface mb-2">
+                    PolyPay
+                </h1>
+<p class="text-on-surface-variant font-body text-lg">
+                    Private Multisig Wallet on Midnight
+                </p>
+</div>
+<!-- Visual Divider (Subtle) -->
+<div class="w-full h-px bg-gradient-to-r from-transparent via-outline-variant/20 to-transparent mb-10"></div>
+<!-- Primary Action -->
+<div class="w-full space-y-4">
+<button class="w-full group relative overflow-hidden brand-gradient text-on-primary font-headline font-bold text-lg py-5 px-8 rounded-xl transition-all duration-300 hover:scale-[1.02] active:scale-[0.98] flex items-center justify-center gap-3">
+<span class="material-symbols-outlined" data-icon="account_balance_wallet">account_balance_wallet</span>
+                    Connect Lace Wallet
+                </button>
+<p class="text-on-surface-variant/60 font-label text-sm tracking-wide">
+                    SECURED BY ZERO-KNOWLEDGE PROOFS
+                </p>
+</div>
+<!-- Secondary Info/Support -->
+<div class="mt-12 grid grid-cols-2 gap-4 w-full">
+<div class="bg-surface-container-low/50 p-4 rounded-lg flex flex-col items-start gap-2 text-left">
+<span class="material-symbols-outlined text-secondary" data-icon="shield">shield</span>
+<span class="font-headline font-semibold text-sm">Always Private</span>
+<span class="text-xs text-on-surface-variant">Transactional metadata remains shielded.</span>
+</div>
+<div class="bg-surface-container-low/50 p-4 rounded-lg flex flex-col items-start gap-2 text-left">
+<span class="material-symbols-outlined text-secondary" data-icon="group">group</span>
+<span class="font-headline font-semibold text-sm">Multi-Signature</span>
+<span class="text-xs text-on-surface-variant">Collective asset management for DAOs.</span>
+</div>
+</div>
+</div>
+<!-- Footer Branding -->
+<div class="mt-8 flex justify-center items-center gap-6 opacity-40 grayscale hover:grayscale-0 hover:opacity-80 transition-all duration-500">
+<div class="flex items-center gap-2">
+<span class="font-label text-xs uppercase tracking-widest">Built for</span>
+<img alt="Midnight Network" class="h-4" data-alt="Minimalist abstract logo representing the Midnight network with geometric clean lines in silver and dark purple" src="https://lh3.googleusercontent.com/aida-public/AB6AXuC8t0JwRwPDFSy25yvC4GEKI7x9O8ZPS81AZfbLY0yIwfIRzxt58QfYbl8gT0DTdPtVHnhbpkUjawwNzAl-ouu4aG3K6LqpTitOomJvB3ulpt00n4eK8T_Sze-7FjrHiKcWxtymDZOIynUshzwBacEOPVSsEaq_X1T9lADDCdeozOENsbRPdqiI9BWob0srRbDzEwn48qV_-yFQ60BQpSaDksgyGnmCBuGBp8G4o863d5_F4dQNvw_dTG_ZCyNhFBpz5wJf3Wu7R6Y"/>
+</div>
+</div>
+</main>
+<!-- Background Decorative Textures -->
+<div class="fixed top-0 left-0 w-full h-full -z-20 pointer-events-none overflow-hidden">
+<div class="absolute top-[10%] right-[15%] w-96 h-96 bg-primary-container/5 rounded-full blur-3xl"></div>
+<div class="absolute bottom-[10%] left-[10%] w-72 h-72 bg-secondary-container/10 rounded-full blur-3xl"></div>
+</div>
+</body></html>
