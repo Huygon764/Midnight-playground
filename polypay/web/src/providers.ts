@@ -11,7 +11,7 @@ import {
   throwError,
   timeout,
 } from "rxjs";
-import { type ConnectedAPI, type InitialAPI } from "@midnight-ntwrk/dapp-connector-api";
+import { type ConnectedAPI, type InitialAPI, type WalletConnectedAPI } from "@midnight-ntwrk/dapp-connector-api";
 import { FetchZkConfigProvider } from "@midnight-ntwrk/midnight-js-fetch-zk-config-provider";
 import { httpClientProofProvider } from "@midnight-ntwrk/midnight-js-http-client-proof-provider";
 import { indexerPublicDataProvider } from "@midnight-ntwrk/midnight-js-indexer-public-data-provider";
@@ -30,14 +30,21 @@ import semver from "semver";
 const COMPATIBLE_CONNECTOR_API_VERSION = "4.x";
 
 let cachedProviders: Promise<PolyPayProviders> | undefined;
+let cachedConnectedAPI: ConnectedAPI | undefined;
 
 export const getProviders = (): Promise<PolyPayProviders> => {
   return cachedProviders ?? (cachedProviders = initializeProviders());
 };
 
+export const getConnectedAPI = (): ConnectedAPI => {
+  if (!cachedConnectedAPI) throw new Error("Wallet not connected");
+  return cachedConnectedAPI;
+};
+
 const initializeProviders = async (): Promise<PolyPayProviders> => {
   const networkId = (import.meta.env.VITE_NETWORK_ID ?? "preprod") as string;
   const connectedAPI = await connectToWallet(networkId);
+  cachedConnectedAPI = connectedAPI;
   const zkConfigPath = window.location.origin;
   const keyMaterialProvider = new FetchZkConfigProvider<PolyPayCircuitKeys>(zkConfigPath, fetch.bind(window));
   const config = await connectedAPI.getConfiguration();

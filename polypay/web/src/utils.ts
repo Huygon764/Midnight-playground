@@ -1,6 +1,7 @@
 import { toHex } from "@midnight-ntwrk/midnight-js-utils";
 
 const STORAGE_KEY = "polypay:secret";
+const CONTRACT_KEY = "polypay:contract";
 
 export function formatError(e: unknown): string {
   console.error("[formatError] Full error object:", e);
@@ -45,7 +46,30 @@ export function loadSecret(): Uint8Array | null {
   return hexToBytes(hex);
 }
 
+export function saveContractAddress(address: string) {
+  localStorage.setItem(CONTRACT_KEY, address);
+}
+
+export function loadContractAddress(): string | null {
+  return localStorage.getItem(CONTRACT_KEY);
+}
+
+export function clearSession() {
+  localStorage.removeItem(CONTRACT_KEY);
+}
+
+export function clearAll() {
+  localStorage.removeItem(STORAGE_KEY);
+  localStorage.removeItem(CONTRACT_KEY);
+}
+
 export function truncateHex(hex: string): string {
   if (hex.length <= 12) return hex;
   return hex.slice(0, 6) + "\u2026" + hex.slice(-4);
+}
+
+export async function deriveSecretFromSignature(signature: string): Promise<Uint8Array> {
+  const data = new TextEncoder().encode(signature);
+  const hash = await crypto.subtle.digest("SHA-256", data);
+  return new Uint8Array(hash);
 }

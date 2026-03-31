@@ -5,11 +5,11 @@ import {
   type DeployedPolyPayAPI,
 } from "../../api/src/index.js";
 import { PolyPay, createPolyPayPrivateState } from "../../contract/src/index.js";
-import { getProviders } from "./providers.js";
+import { getProviders, getConnectedAPI } from "./providers.js";
 import { toHex } from "@midnight-ntwrk/midnight-js-utils";
 
 import type { Phase, Tab } from "./types.js";
-import { formatError, hexToBytes, saveSecret, loadSecret } from "./utils.js";
+import { formatError, hexToBytes, saveSecret, loadSecret, saveContractAddress, loadContractAddress, deriveSecretFromSignature } from "./utils.js";
 import { Icon, Spinner, StatusMessage } from "./components/ui.js";
 import { Sidebar } from "./components/Sidebar.js";
 import { PageHeader } from "./components/PageHeader.js";
@@ -56,26 +56,52 @@ export default function App() {
     }
   }, []);
 
+  const restoreOrDeriveSecret = useCallback(async (): Promise<Uint8Array> => {
+    const saved = loadSecret();
+    if (saved) return saved;
+
+    const walletApi = getConnectedAPI();
+    const result = await walletApi.signData("PolyPay Signer Identity", {
+      encoding: "text",
+      keyType: "unshielded",
+    });
+    const secret = await deriveSecretFromSignature(result.signature);
+    saveSecret(secret);
+    return secret;
+  }, []);
+
   const connectWallet = useCallback(async () => {
     try {
       setPhase("connecting");
       setError("");
-      await getProviders();
-      setPhase("setup");
+      const providers = await getProviders();
+
+      const secret = await restoreOrDeriveSecret();
+      const commitment = PolyPay.pureCircuits.deriveCommitment(secret);
+      setMySecret(toHex(secret));
+      setMyCommitment(toHex(commitment));
+
+      await providers.privateStateProvider.set(
+        "polyPayPrivateState" as any,
+        createPolyPayPrivateState(secret) as any,
+      );
+
+      const savedAddr = loadContractAddress();
+      if (savedAddr) {
+        setWorkingMsg("Rejoining contract...");
+        const payApi = await PolyPayAPI.join(providers, savedAddr);
+        setApi(payApi);
+        setContractAddress(payApi.deployedContractAddress);
+        setPhase("dashboard");
+      } else {
+        setPhase("setup");
+      }
     } catch (e) {
       console.error("Connect failed:", e);
       setError(formatError(e));
       setPhase("error");
     }
-  }, []);
-
-  const setupIdentity = async (payApi: PolyPayAPI) => {
-    const secret = await payApi.getSecret();
-    saveSecret(secret);
-    const commitment = PolyPay.pureCircuits.deriveCommitment(secret);
-    setMySecret(toHex(secret));
-    setMyCommitment(toHex(commitment));
-  };
+  }, [restoreOrDeriveSecret]);
 
   const deployContract = useCallback(async () => {
     setIsWorking(true);
@@ -83,17 +109,10 @@ export default function App() {
     setTxStatus("");
     try {
       const providers = await getProviders();
-      const saved = loadSecret();
-      if (saved) {
-        await providers.privateStateProvider.set(
-          "polyPayPrivateState" as any,
-          createPolyPayPrivateState(saved) as any,
-        );
-      }
       const payApi = await PolyPayAPI.deploy(providers, BigInt(threshold));
       setApi(payApi);
       setContractAddress(payApi.deployedContractAddress);
-      await setupIdentity(payApi);
+      saveContractAddress(payApi.deployedContractAddress);
       setTxStatus("Deployed successfully");
       setPhase("init-signers");
     } catch (e) {
@@ -112,17 +131,10 @@ export default function App() {
     setTxStatus("");
     try {
       const providers = await getProviders();
-      const saved = loadSecret();
-      if (saved) {
-        await providers.privateStateProvider.set(
-          "polyPayPrivateState" as any,
-          createPolyPayPrivateState(saved) as any,
-        );
-      }
       const payApi = await PolyPayAPI.join(providers, joinAddr.trim());
       setApi(payApi);
       setContractAddress(payApi.deployedContractAddress);
-      await setupIdentity(payApi);
+      saveContractAddress(payApi.deployedContractAddress);
       setPhase("dashboard");
     } catch (e) {
       console.error("Join failed:", e);

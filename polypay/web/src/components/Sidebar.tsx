@@ -1,5 +1,5 @@
 import { type Tab, NAV_ITEMS } from "../types.js";
-import { truncateHex } from "../utils.js";
+import { truncateHex, clearSession } from "../utils.js";
 import { Icon, CopyButton } from "./ui.js";
 
 export function Sidebar({
@@ -62,7 +62,7 @@ export function Sidebar({
           </div>
         )}
         <button
-          onClick={() => window.location.reload()}
+          onClick={() => { clearSession(); window.location.reload(); }}
           className="w-full py-3 rounded-xl border border-outline-variant/30 text-on-surface-variant font-headline text-sm hover:bg-error/5 hover:text-error transition-all"
         >
           Disconnect
