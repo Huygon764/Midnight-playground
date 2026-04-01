@@ -12,7 +12,7 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks: {
-          wasm: ["@midnight-ntwrk/onchain-runtime-v2"],
+          wasm: ["@midnight-ntwrk/onchain-runtime-v3"],
         },
       },
     },
@@ -34,7 +34,7 @@ export default defineConfig({
       name: "wasm-module-resolver",
       resolveId(source, importer) {
         if (
-          source === "@midnight-ntwrk/onchain-runtime-v2" &&
+          source === "@midnight-ntwrk/onchain-runtime-v3" &&
           importer &&
           importer.includes("@midnight-ntwrk/compact-runtime")
         ) {
@@ -54,9 +54,9 @@ export default defineConfig({
     },
     include: ["@midnight-ntwrk/compact-runtime"],
     exclude: [
-      "@midnight-ntwrk/onchain-runtime-v2",
-      "@midnight-ntwrk/onchain-runtime-v2/midnight_onchain_runtime_wasm_bg.wasm",
-      "@midnight-ntwrk/onchain-runtime-v2/midnight_onchain_runtime_wasm.js",
+      "@midnight-ntwrk/onchain-runtime-v3",
+      "@midnight-ntwrk/onchain-runtime-v3/midnight_onchain_runtime_wasm_bg.wasm",
+      "@midnight-ntwrk/onchain-runtime-v3/midnight_onchain_runtime_wasm.js",
     ],
   },
   resolve: {

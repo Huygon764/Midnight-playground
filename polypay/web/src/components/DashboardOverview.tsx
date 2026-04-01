@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import type { PolyPayDerivedState, DeployedPolyPayAPI } from "../../../api/src/index.js";
 import type { WalletTab } from "../types.js";
 import { truncateHex } from "../utils.js";
+import { toHex } from "@midnight-ntwrk/midnight-js-utils";
 import { Icon, CopyButton } from "./ui.js";
 import { IdentityCard } from "./IdentityCard.js";
 
@@ -9,7 +10,7 @@ export function DashboardOverview({
   state,
   api,
   contractAddress,
-  tokenColor,
+  tokenSymbol,
   mySecret,
   myCommitment,
   onNavigate,
@@ -17,22 +18,25 @@ export function DashboardOverview({
   state: PolyPayDerivedState | null;
   api: DeployedPolyPayAPI | null;
   contractAddress: string;
-  tokenColor: string;
+  tokenSymbol: string;
   mySecret: string;
   myCommitment: string;
   onNavigate: (tab: WalletTab) => void;
 }) {
   const [vaultBalance, setVaultBalance] = useState("--");
 
+  const colorHex = state ? toHex(state.tokenColor) : "";
+  const hasColor = colorHex && colorHex !== "0".repeat(64);
+
   const refreshBalance = useCallback(async () => {
-    if (!api || !tokenColor) return;
+    if (!api || !hasColor) return;
     try {
-      const bal = await api.getVaultBalance(tokenColor);
+      const bal = await api.getVaultBalance(colorHex);
       setVaultBalance(bal.toString());
     } catch {
       setVaultBalance("?");
     }
-  }, [api, tokenColor]);
+  }, [api, hasColor, colorHex]);
 
   useEffect(() => { refreshBalance(); }, [refreshBalance]);
 
@@ -52,7 +56,7 @@ export function DashboardOverview({
               <h2 className="text-3xl font-headline font-extrabold text-on-surface tracking-tight">
                 {vaultBalance}
               </h2>
-              <span className="text-primary font-label font-bold">tokens</span>
+              <span className="text-primary font-label font-bold">{tokenSymbol || "tokens"}</span>
             </div>
           </div>
 

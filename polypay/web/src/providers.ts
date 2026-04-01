@@ -22,7 +22,7 @@ import {
   SignatureEnabled,
   Transaction,
   type TransactionId,
-} from "@midnight-ntwrk/ledger-v7";
+} from "@midnight-ntwrk/ledger-v8";
 import { inMemoryPrivateStateProvider } from "./in-memory-private-state-provider.js";
 import { type UnboundTransaction } from "@midnight-ntwrk/midnight-js-types";
 import { MidnightBech32m, UnshieldedAddress } from "@midnight-ntwrk/wallet-sdk-address-format";

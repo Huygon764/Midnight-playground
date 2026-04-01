@@ -1,9 +1,9 @@
 import { PolyPay, Token, type PolyPayPrivateState, type TokenPrivateState } from "../../contract/src/index.js";
 import type { MidnightProviders } from "@midnight-ntwrk/midnight-js-types";
 import type { DeployedContract, FoundContract } from "@midnight-ntwrk/midnight-js-contracts";
-import type { ImpureCircuitId } from "@midnight-ntwrk/compact-js";
+import { type ProvableCircuitId } from "@midnight-ntwrk/compact-js";
 
-export type PolyPayCircuitKeys = ImpureCircuitId<PolyPay.Contract<PolyPayPrivateState>>;
+export type PolyPayCircuitKeys = ProvableCircuitId<PolyPay.Contract<PolyPayPrivateState>>;
 
 export const polyPayPrivateStateKey = "polyPayPrivateState";
 export type PrivateStateId = typeof polyPayPrivateStateKey;
@@ -32,7 +32,7 @@ export type TransactionInfo = {
 };
 
 // Token contract types
-export type TokenCircuitKeys = ImpureCircuitId<Token.Contract<TokenPrivateState>>;
+export type TokenCircuitKeys = ProvableCircuitId<Token.Contract<TokenPrivateState>>;
 
 export const tokenPrivateStateKey = "tokenPrivateState";
 

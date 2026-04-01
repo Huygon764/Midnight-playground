@@ -1,6 +1,12 @@
 # Midnight Playground
 
-A progressive collection of 5 example projects for learning **Compact smart contract language** on the **Midnight blockchain**, building toward **PolyPay** (a private payroll system).
+A progressive collection of 5 example projects for learning **Compact smart contract language** on the **Midnight blockchain**, plus **PolyPay** — a privacy-preserving multisig wallet.
+
+## PolyPay
+
+| Project | Description | Components |
+|---------|-------------|------------|
+| [polypay](polypay/) | Private multisig wallet — signers identified by ZK commitments, anonymous approvals via nullifiers | Contract (15 circuits) + Token Contract + API + Web UI |
 
 ## Examples
 
@@ -10,7 +16,7 @@ A progressive collection of 5 example projects for learning **Compact smart cont
 | 02 | [secret-counter](examples/02-secret-counter/) | Witness, persistentHash, owner authentication | Contract + Test + CLI |
 | 03 | [private-voting](examples/03-private-voting/) | HistoricMerkleTree, commitment/nullifier, Set, disclose, domain separator | Contract + Test + CLI + Web |
 | 04 | [private-token](examples/04-private-token/) | Contract token, Map balances, transfer with ZKP, Opaque type | Contract + Test + CLI + Web |
-| 05 | [payroll-lite](examples/05-payroll-lite/) | Full commit/nullifier flow, resetHistory, employer/employee roles (PolyPay precursor) | Contract + Test + CLI + Web |
+| 05 | [payroll-lite](examples/05-payroll-lite/) | Full commit/nullifier flow, resetHistory, employer/employee roles | Contract + Test + CLI + Web |
 
 ## Prerequisites
 
@@ -67,13 +73,13 @@ Commitment tree root        Generated TypeScript API      User's secret key
 
 ## Compatibility
 
-| Component | Version |
-|-----------|---------|
-| Compact Compiler | 0.30.0 |
-| Compact Runtime | 0.15.0 |
-| Proof Server | 8.0.3 |
-| Midnight JS SDK | 3.0.0 |
-| Network | Preprod |
+| Component | Examples | PolyPay |
+|-----------|----------|---------|
+| Compact Compiler | 0.30.0 | 0.30.0 |
+| Compact Runtime | 0.15.0 | 0.15.0 |
+| Proof Server | 8.0.3 | 8.0.3 |
+| Midnight JS SDK | 3.0.0 | 4.0.2 |
+| Network | Preprod | Preprod |
 
 ## Reference Repos
 

@@ -1,5 +1,5 @@
 import type { SigningKey } from "@midnight-ntwrk/compact-runtime";
-import type { ContractAddress } from "@midnight-ntwrk/ledger-v7";
+import type { ContractAddress } from "@midnight-ntwrk/ledger-v8";
 import { type PrivateStateId, type PrivateStateProvider } from "@midnight-ntwrk/midnight-js-types";
 
 export const inMemoryPrivateStateProvider = <PSI extends PrivateStateId, PS = unknown>(): PrivateStateProvider<
@@ -10,6 +10,7 @@ export const inMemoryPrivateStateProvider = <PSI extends PrivateStateId, PS = un
   const signingKeys = {} as Record<ContractAddress, SigningKey>;
 
   return {
+    setContractAddress(_address: ContractAddress): void {},
     set(key: PSI, state: PS): Promise<void> {
       record.set(key, state);
       return Promise.resolve();
@@ -39,6 +40,18 @@ export const inMemoryPrivateStateProvider = <PSI extends PrivateStateId, PS = un
     clearSigningKeys(): Promise<void> {
       Object.keys(signingKeys).forEach((k) => delete signingKeys[k as ContractAddress]);
       return Promise.resolve();
+    },
+    exportPrivateStates(): Promise<any> {
+      throw new Error("Not implemented");
+    },
+    importPrivateStates(): Promise<any> {
+      throw new Error("Not implemented");
+    },
+    exportSigningKeys(): Promise<any> {
+      throw new Error("Not implemented");
+    },
+    importSigningKeys(): Promise<any> {
+      throw new Error("Not implemented");
     },
   };
 };

@@ -535,7 +535,7 @@ export default function App() {
           {/* ── Wallet Mode: Dashboard ─────────────────────────── */}
           {mode === "wallet" && phase === "dashboard" && (
             <>
-              {walletTab === "overview" && <DashboardOverview state={state} api={api} contractAddress={contractAddress} tokenColor={tokenColor} mySecret={mySecret} myCommitment={myCommitment} onNavigate={setWalletTab} />}
+              {walletTab === "overview" && <DashboardOverview state={state} api={api} contractAddress={contractAddress} tokenSymbol={tokenSymbol} mySecret={mySecret} myCommitment={myCommitment} onNavigate={setWalletTab} />}
               {walletTab === "deposit" && api && <DepositTab api={api} doAction={doAction} />}
               {walletTab === "propose-transfer" && api && <ProposeTransferTab api={api} doAction={doAction} />}
               {walletTab === "propose-signer" && api && <ProposeSignerTab api={api} doAction={doAction} myCommitment={myCommitment} />}
