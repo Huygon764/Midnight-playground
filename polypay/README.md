@@ -1,6 +1,6 @@
 # PolyPay — Private Multisig Wallet on Midnight
 
-A privacy-preserving multisig wallet built on the Midnight blockchain. Signers are identified by ZK commitments (hash of secret), not public keys. Nobody on-chain can tell which signer approved which transaction.
+A privacy-preserving multisig wallet built on the **Midnight blockchain (Preprod network)**. Signers are identified by ZK commitments (hash of secret), not public keys. Nobody on-chain can tell which signer approved which transaction.
 
 ## Prerequisites
 
@@ -199,6 +199,7 @@ OPERATIONAL PHASE
 - **Off-chain signer coordination** — channel for sharing commitments between signers
 - **Withdraw circuit** — re-add if circuit count can be reduced elsewhere
 - **localStorage namespace** — storage keys are global (`polypay:secret`), not scoped by network or wallet. Switching wallets or networks on the same browser will overwrite the previous session
+- **Vault balance display** — `unshieldedBalancesObservable` (SDK) and direct GraphQL `contractAction.unshieldedBalances` both return `[]` for the contract address after `receiveUnshielded()`. Suspected SDK/indexer bug on Preprod. Vault balance currently shows "0" in the UI despite successful deposits. Workaround: pending upstream fix or alternative query method
 
 ## Dependencies
 
