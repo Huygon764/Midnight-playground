@@ -9,7 +9,7 @@
 Ideally, deploying a multisig wallet would be a single transaction:
 
 ```
-deploy(threshold, [commitment_A, commitment_B, commitment_C])
+deploy(threshold, tokenColor, [commitment_A, commitment_B, commitment_C])
 ```
 
 Instead, PolyPay requires three phases:
@@ -33,7 +33,7 @@ PolyPay already has **12 impure circuits** -- the practical maximum we could dep
 | Category | Circuits |
 |----------|----------|
 | Setup | `constructor`, `initSigner`, `finalize` |
-| Token | `mint` |
+| Token | `deposit` |
 | Propose | `proposeTransfer`, `proposeAddSigner`, `proposeRemoveSigner`, `proposeSetThreshold` |
 | Approve | `approveTx` |
 | Execute | `executeTransfer`, `executeAddSigner`, `executeRemoveSigner`, `executeSetThreshold` |
@@ -45,7 +45,7 @@ Adding a batch `initSigners(commitments[])` circuit would push past the limit. W
 The constructor signature is:
 
 ```compact
-constructor(initialThreshold: Uint<8>)
+constructor(initialThreshold: Uint<8>, color: Bytes<32>)
 ```
 
 Compact circuit parameters must have fixed types known at compile time. There is no way to pass a dynamic-length list of commitments. Options would be:

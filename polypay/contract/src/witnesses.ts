@@ -10,6 +10,8 @@ export const createPolyPayPrivateState = (secret: Uint8Array): PolyPayPrivateSta
   secret,
 });
 
+// Witness provides secret to ZK circuits without disclosing it on-chain.
+// All impure circuits require this witness — see ADR-001 for why.
 export const witnesses = {
   localSecret: ({
     privateState,

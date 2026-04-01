@@ -20,6 +20,7 @@ export const WALLET_NAV_ITEMS: { id: WalletTab; icon: string; label: string }[] 
   { id: "transactions", icon: "history", label: "Transactions" },
 ];
 
+// Type 1 was "Withdraw" — removed in ADR-001 to stay within circuit count limit
 export const TX_TYPE_LABELS: Record<string, string> = {
   "0": "Transfer",
   "2": "Add Signer",
