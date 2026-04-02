@@ -1,10 +1,12 @@
 import { useState, useEffect, useCallback } from "react";
 import type { PolyPayDerivedState, DeployedPolyPayAPI } from "../../../api/src/index.js";
+import { utils } from "../../../api/src/index.js";
 import type { WalletTab } from "../types.js";
 import { truncateHex } from "../utils.js";
 import { toHex } from "@midnight-ntwrk/midnight-js-utils";
 import { Icon, CopyButton } from "./ui.js";
 import { IdentityCard } from "./IdentityCard.js";
+import { getIndexerUri } from "../providers.js";
 
 export function DashboardOverview({
   state,
@@ -31,14 +33,22 @@ export function DashboardOverview({
   const refreshBalance = useCallback(async () => {
     if (!api || !hasColor) return;
     try {
-      const bal = await api.getVaultBalance(colorHex);
-      setVaultBalance(bal.toString());
-    } catch {
+      const indexerUri = getIndexerUri();
+      const balances = await utils.queryVaultBalance(indexerUri, api.deployedContractAddress);
+      console.log("[vaultBalance] direct GraphQL:", balances);
+      const entry = balances.find((b) => b.tokenType === colorHex);
+      setVaultBalance(entry ? entry.balance.toString() : "0");
+    } catch (err) {
+      console.error("[vaultBalance] error:", err);
       setVaultBalance("?");
     }
   }, [api, hasColor, colorHex]);
 
-  useEffect(() => { refreshBalance(); }, [refreshBalance]);
+  useEffect(() => {
+    refreshBalance();
+    const interval = setInterval(refreshBalance, 10_000);
+    return () => clearInterval(interval);
+  }, [refreshBalance]);
 
   return (
     <>
@@ -132,12 +142,6 @@ export function DashboardOverview({
         >
           <Icon name="group_add" />
           Manage Signers
-        </button>
-        <button
-          onClick={refreshBalance}
-          className="bg-surface-container hover:bg-surface-container-high px-4 py-3 rounded-xl text-outline hover:text-primary flex items-center gap-2 transition-all"
-        >
-          <Icon name="refresh" className="text-sm" />
         </button>
       </div>
 

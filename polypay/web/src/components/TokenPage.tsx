@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import type { DeployedTokenAPI } from "../../../api/src/index.js";
 import type { TokenTab, DoAction } from "../types.js";
-import { truncateHex, hexToBytes } from "../utils.js";
+import { truncateHex, hexToBytes, decodeBech32mAddress } from "../utils.js";
 import { Icon, CopyButton } from "./ui.js";
 import { getConnectedAPI } from "../providers.js";
 import { toHex } from "@midnight-ntwrk/midnight-js-utils";
@@ -305,7 +305,7 @@ function TokenMint({
               )}
             </div>
             <input
-              placeholder="Unshielded address (hex, 64 chars)"
+              placeholder="Midnight address (mn_addr_preprod1...)"
               value={recipient}
               onChange={(e) => setRecipient(e.target.value)}
               className="w-full bg-surface-container-highest border-none rounded-2xl py-4 px-6 font-label text-sm text-on-surface placeholder:text-outline/40 focus:ring-2 focus:ring-primary/50 transition-all outline-none"
@@ -333,9 +333,9 @@ function TokenMint({
 
           <button
             onClick={() => {
-              const toBytes = hexToBytes(recipient);
-              if (toBytes.length !== 32) {
-                alert(`Address must be 32 bytes (64 hex chars), got ${toBytes.length} bytes`);
+              const toBytes = decodeBech32mAddress(recipient);
+              if (!toBytes) {
+                alert("Invalid address. Paste a Midnight address (mn_addr_preprod1...)");
                 return;
               }
               doAction("Mint", () => tokenApi.mint(BigInt(amount), toBytes));

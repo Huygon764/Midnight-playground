@@ -1,4 +1,5 @@
 import { toHex } from "@midnight-ntwrk/midnight-js-utils";
+import { MidnightBech32m, UnshieldedAddress } from "@midnight-ntwrk/wallet-sdk-address-format";
 
 const STORAGE_KEY = "polypay:secret";
 const CONTRACT_KEY = "polypay:contract";
@@ -76,6 +77,17 @@ export function clearAll() {
 export function truncateHex(hex: string): string {
   if (hex.length <= 12) return hex;
   return hex.slice(0, 6) + "\u2026" + hex.slice(-4);
+}
+
+export function decodeBech32mAddress(address: string): Uint8Array | null {
+  try {
+    const networkId = (import.meta.env.VITE_NETWORK_ID ?? "preprod") as string;
+    const parsed = MidnightBech32m.parse(address);
+    const decoded = parsed.decode(UnshieldedAddress, networkId);
+    return new Uint8Array(decoded.data);
+  } catch {
+    return null;
+  }
 }
 
 export async function deriveSecretFromSignature(signature: string): Promise<Uint8Array> {

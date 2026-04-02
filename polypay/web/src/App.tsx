@@ -7,7 +7,7 @@ import {
   type DeployedTokenAPI,
 } from "../../api/src/index.js";
 import { PolyPay, createPolyPayPrivateState, createTokenPrivateState } from "../../contract/src/index.js";
-import { getProviders, getConnectedAPI, getUnshieldedAddressBytes } from "./providers.js";
+import { getProviders, getConnectedAPI, getUnshieldedAddress } from "./providers.js";
 import { toHex } from "@midnight-ntwrk/midnight-js-utils";
 
 import type { Mode, Phase, TokenTab, WalletTab } from "./types.js";
@@ -115,7 +115,7 @@ export default function App() {
       await providers.privateStateProvider.set("polyPayPrivateState" as any, createPolyPayPrivateState(secret) as any);
       await providers.privateStateProvider.set("tokenPrivateState" as any, createTokenPrivateState(secret) as any);
 
-      setMyAddress(toHex(getUnshieldedAddressBytes()));
+      setMyAddress(getUnshieldedAddress());
 
       // Restore token contract
       const savedTokenAddr = loadTokenAddress();

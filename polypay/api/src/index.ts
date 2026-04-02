@@ -41,7 +41,7 @@ export interface DeployedPolyPayAPI {
   executeSetThreshold: (txId: bigint) => Promise<void>;
 
   // Read
-  getVaultBalance: (tokenColor: string) => Promise<bigint>;
+  readonly vaultBalance$: Observable<{ tokenType: string; balance: bigint }[]>;
   getTransactionList: () => Promise<TransactionInfo[]>;
   getSignerList: () => Promise<Uint8Array[]>;
 }
@@ -70,10 +70,16 @@ export class PolyPayAPI implements DeployedPolyPayAPI {
           };
         }),
       );
+    this.vaultBalance$ = providers.publicDataProvider
+      .unshieldedBalancesObservable(this.deployedContractAddress, { type: "latest" })
+      .pipe(
+        map((balances) => balances.map((b) => ({ tokenType: b.tokenType, balance: b.balance }))),
+      );
   }
 
   readonly deployedContractAddress: ContractAddress;
   readonly state$: Observable<PolyPayDerivedState>;
+  readonly vaultBalance$: Observable<{ tokenType: string; balance: bigint }[]>;
 
   // Setup
   async initSigner(commitment: Uint8Array): Promise<void> {
@@ -141,13 +147,6 @@ export class PolyPayAPI implements DeployedPolyPayAPI {
   }
 
   // Read
-  async getVaultBalance(tokenColor: string): Promise<bigint> {
-    const balances = await this.providers.publicDataProvider.queryUnshieldedBalances(this.deployedContractAddress);
-    if (!balances) return 0n;
-    const entry = balances.find((b) => b.tokenType === tokenColor);
-    return entry?.balance ?? 0n;
-  }
-
   async getTransactionList(): Promise<TransactionInfo[]> {
     const contractState = await this.providers.publicDataProvider.queryContractState(this.deployedContractAddress);
     if (!contractState) return [];

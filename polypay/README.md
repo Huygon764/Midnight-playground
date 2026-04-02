@@ -33,7 +33,7 @@ Verify it's running: `curl http://127.0.0.1:6300/health` should respond.
 
 ### Midnight Lace Wallet
 
-1. Install [Midnight Lace Wallet](https://chrome.google.com/webstore/detail/midnight-lace) Chrome extension
+1. Install [Midnight Lace Wallet](https://chromewebstore.google.com/detail/lace/gafhhkghbfjjkeiendhlofajokpaflmk) Chrome extension
 2. Create or restore a wallet
 3. Switch network to **Preprod**
 4. Configure proof server:

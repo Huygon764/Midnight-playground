@@ -1,7 +1,7 @@
 import { useState } from "react";
 import type { DeployedPolyPayAPI } from "../../../api/src/index.js";
 import type { DoAction } from "../types.js";
-import { hexToBytes } from "../utils.js";
+import { decodeBech32mAddress } from "../utils.js";
 import { Icon } from "./ui.js";
 
 export function ProposeTransferTab({
@@ -27,10 +27,10 @@ export function ProposeTransferTab({
         <div className="bg-surface-container-low rounded-3xl p-8 space-y-6">
           <div className="space-y-3">
             <label className="text-xs font-bold font-headline uppercase tracking-widest text-outline ml-1">
-              Recipient Address (Bytes&lt;32&gt;)
+              Recipient Address
             </label>
             <input
-              placeholder="0x..."
+              placeholder="mn_addr_preprod1..."
               value={to}
               onChange={(e) => setTo(e.target.value)}
               className="w-full bg-surface-container-highest border-none rounded-2xl py-5 px-6 font-label text-on-surface placeholder:text-outline/40 focus:ring-2 focus:ring-primary/50 transition-all outline-none"
@@ -65,9 +65,14 @@ export function ProposeTransferTab({
           </div>
 
           <button
-            onClick={() =>
-              doAction("Propose Transfer", () => api.proposeTransfer(hexToBytes(to), BigInt(amount)))
-            }
+            onClick={() => {
+              const toBytes = decodeBech32mAddress(to);
+              if (!toBytes) {
+                alert("Invalid address. Paste a Midnight address (mn_addr_preprod1...)");
+                return;
+              }
+              doAction("Propose Transfer", () => api.proposeTransfer(toBytes, BigInt(amount)));
+            }}
             disabled={!to || !amount}
             className="w-full py-5 rounded-2xl gradient-btn text-on-primary font-bold text-lg hover:brightness-110 active:scale-[0.98] transition-all shadow-lg shadow-primary/20 disabled:opacity-50"
           >
