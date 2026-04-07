@@ -55,7 +55,15 @@ This is the exact pattern from the [Compact standard library documentation](http
 - Lace wallet (Chrome extension, connected to preprod)
 - tNIGHT from faucet + DUST generated
 
-### 1. Start proof server
+### 1. Clone and checkout branch
+
+```bash
+git clone git@github.com:Huygon764/Midnight-playground.git
+cd Midnight-playground
+git checkout feat/shielded-token-proof-server-bug
+```
+
+### 2. Start proof server
 
 ```bash
 docker run -d --rm -p 6300:6300 midnightntwrk/proof-server:8.0.3
@@ -63,7 +71,7 @@ docker run -d --rm -p 6300:6300 midnightntwrk/proof-server:8.0.3
 
 Verify: `curl http://localhost:6300/health` should return `{"status":"ok",...}`
 
-### 2. Install and compile
+### 3. Install and compile
 
 ```bash
 cd polypay
@@ -73,23 +81,23 @@ npm run compact    # Compiles polypay + token + test-shielded contracts
 npm run build
 ```
 
-### 3. Run test web page
+### 4. Run test web page
 
 ```bash
 cd ../web
 npm run dev
 ```
 
-### 4. Open test page
+### 5. Open test page
 
 Navigate to: **http://localhost:5173/test-shielded.html**
 
-### 5. Deploy and test
+### 6. Deploy and test
 
 1. Click **"Connect + Deploy"** — connects Lace wallet and deploys the minimal test-shielded contract (only 2 circuits)
 2. Click **"Test receiveShielded"** — calls `receiveShieldedTokens(coin)` with a native tNIGHT coin
 
-### 6. Observe error
+### 7. Observe error
 
 ```
 POST http://localhost:6300/prove 400 (Bad Request)
