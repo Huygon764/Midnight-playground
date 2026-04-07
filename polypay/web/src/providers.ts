@@ -34,6 +34,7 @@ let cachedProviders: Promise<PolyPayProviders> | undefined;
 let cachedConnectedAPI: ConnectedAPI | undefined;
 let cachedUnshieldedAddress: Uint8Array | undefined;
 let cachedUnshieldedAddressBech32m: string | undefined;
+let cachedShieldedCoinPublicKey: string | undefined;
 let cachedIndexerUri: string | undefined;
 
 export const getProviders = (): Promise<PolyPayProviders> => {
@@ -48,6 +49,11 @@ export const getConnectedAPI = (): ConnectedAPI => {
 export const getUnshieldedAddressBytes = (): Uint8Array => {
   if (!cachedUnshieldedAddress) throw new Error("Wallet not connected");
   return cachedUnshieldedAddress;
+};
+
+export const getShieldedCoinPublicKey = (): string => {
+  if (!cachedShieldedCoinPublicKey) throw new Error("Wallet not connected");
+  return cachedShieldedCoinPublicKey;
 };
 
 export const getUnshieldedAddress = (): string => {
@@ -71,6 +77,7 @@ const initializeProviders = async (): Promise<PolyPayProviders> => {
   console.log("[providers] Wallet config:", JSON.stringify(config, null, 2));
   const privateStateProvider = inMemoryPrivateStateProvider<string, PolyPayPrivateState>();
   const shieldedAddresses = await connectedAPI.getShieldedAddresses();
+  cachedShieldedCoinPublicKey = shieldedAddresses.shieldedCoinPublicKey;
 
   const { unshieldedAddress } = await connectedAPI.getUnshieldedAddress();
   cachedUnshieldedAddressBech32m = unshieldedAddress;

@@ -1,0 +1,20 @@
+pragma language_version >= 0.20;
+
+import CompactStandardLibrary;
+
+// Minimal test contract — EXACT patterns from Midnight docs
+// Purpose: verify if shielded kernel ops work on proof server
+
+witness localSecret(): Bytes<32>;
+
+constructor() {
+  const secret = localSecret();
+}
+
+export circuit receiveShieldedTokens(coin: ShieldedCoinInfo): [] {
+  receiveShielded(disclose(coin));
+}
+
+export circuit mintShieldedToSelf(domainSep: Bytes<32>, value: Uint<64>, nonce: Bytes<32>): ShieldedCoinInfo {
+  return mintShieldedToken(disclose(domainSep), disclose(value), disclose(nonce), right<ZswapCoinPublicKey, ContractAddress>(kernel.self()));
+}
