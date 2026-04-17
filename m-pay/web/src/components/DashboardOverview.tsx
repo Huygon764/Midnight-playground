@@ -1,0 +1,138 @@
+import type { MPayDerivedState, DeployedMPayAPI } from "../../../api/src/index.js";
+import type { WalletTab } from "../types.js";
+import { Icon, CopyButton } from "./ui.js";
+import { IdentityCard } from "./IdentityCard.js";
+
+export function DashboardOverview({
+  state,
+  api: _api,
+  contractAddress,
+  vaultKeyHex,
+  mySecret,
+  myCommitment,
+  onNavigate,
+}: {
+  state: MPayDerivedState | null;
+  api: DeployedMPayAPI | null;
+  contractAddress: string;
+  vaultKeyHex: string | null;
+  mySecret: string;
+  myCommitment: string;
+  onNavigate: (tab: WalletTab) => void;
+}) {
+  const vaultBalance = state ? state.vaultBalance.toString() : "--";
+
+  return (
+    <>
+      {state && (
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+          <div className="bg-surface-container-low p-6 rounded-2xl flex flex-col gap-2 relative overflow-hidden">
+            <div className="absolute -right-4 -top-4 opacity-10">
+              <Icon name="account_balance" className="text-6xl" />
+            </div>
+            <span className="text-outline text-xs font-label tracking-wider uppercase">
+              Vault Balance
+            </span>
+            <div className="flex items-baseline gap-2">
+              <h2 className="text-3xl font-headline font-extrabold text-on-surface tracking-tight">
+                {vaultBalance}
+              </h2>
+              <span className="text-primary font-label font-bold">MPAY</span>
+            </div>
+          </div>
+
+          <div className="bg-surface-container-low p-6 rounded-2xl flex flex-col gap-2">
+            <span className="text-outline text-xs font-label tracking-wider uppercase">
+              Signer Count
+            </span>
+            <h2 className="text-3xl font-headline font-extrabold text-on-surface tracking-tight">
+              {state.signerCount.toString()}
+            </h2>
+          </div>
+
+          <div className="bg-surface-container-low p-6 rounded-2xl flex flex-col gap-2">
+            <span className="text-outline text-xs font-label tracking-wider uppercase">
+              Threshold
+            </span>
+            <h2 className="text-3xl font-headline font-extrabold text-on-surface tracking-tight">
+              {state.threshold.toString()}/{state.signerCount.toString()}
+            </h2>
+            <div className="w-full bg-surface-container-highest h-1.5 rounded-full mt-1">
+              <div
+                className="bg-primary h-full rounded-full shadow-[0_0_12px_rgba(208,188,255,0.4)]"
+                style={{
+                  width: `${(Number(state.threshold) / Math.max(1, Number(state.signerCount))) * 100}%`,
+                }}
+              />
+            </div>
+          </div>
+
+          <div className="bg-surface-container-low p-6 rounded-2xl flex flex-col gap-4 justify-center items-start border border-emerald-500/10">
+            <span className="text-outline text-xs font-label tracking-wider uppercase">
+              Status
+            </span>
+            <div className="inline-flex items-center gap-2 px-4 py-1.5 bg-emerald-500/10 text-emerald-400 rounded-full border border-emerald-500/20">
+              <Icon name="check_circle" filled className="text-sm" />
+              <span className="text-sm font-bold font-headline">Finalized</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {(contractAddress || vaultKeyHex) && (
+        <div className="bg-surface-container rounded-2xl p-5 mb-6 space-y-3">
+          {contractAddress && (
+            <div className="flex items-start gap-3">
+              <Icon name="description" className="text-outline mt-0.5 shrink-0" />
+              <div className="flex-1 min-w-0">
+                <span className="block text-xs font-label text-outline uppercase tracking-wider mb-1">
+                  Contract Address
+                </span>
+                <span className="font-label text-sm text-secondary break-all">{contractAddress}</span>
+              </div>
+              <CopyButton text={contractAddress} />
+            </div>
+          )}
+          {vaultKeyHex && (
+            <div className="flex items-start gap-3 pt-3 border-t border-outline-variant/10">
+              <Icon name="key" className="text-tertiary mt-0.5 shrink-0" />
+              <div className="flex-1 min-w-0">
+                <span className="block text-xs font-label text-outline uppercase tracking-wider mb-1">
+                  Vault Key <span className="text-tertiary/80 normal-case font-body">— share with co-signers</span>
+                </span>
+                <span className="font-label text-sm text-on-surface break-all">{vaultKeyHex}</span>
+              </div>
+              <CopyButton text={vaultKeyHex} />
+            </div>
+          )}
+        </div>
+      )}
+
+      <div className="mb-8 flex flex-wrap gap-4">
+        <button
+          onClick={() => onNavigate("deposit")}
+          className="gradient-btn px-6 py-3 rounded-xl font-headline font-bold text-on-primary flex items-center gap-2 shadow-lg shadow-primary-container/20 active:scale-95 transition-transform"
+        >
+          <Icon name="savings" />
+          Deposit
+        </button>
+        <button
+          onClick={() => onNavigate("propose-transfer")}
+          className="bg-surface-container-highest hover:bg-surface-bright px-6 py-3 rounded-xl font-headline font-bold text-on-surface flex items-center gap-2 border border-outline-variant/30 active:scale-95 transition-all"
+        >
+          <Icon name="send_money" />
+          Propose Transfer
+        </button>
+        <button
+          onClick={() => onNavigate("propose-signer")}
+          className="bg-surface-container-highest hover:bg-surface-bright px-6 py-3 rounded-xl font-headline font-bold text-on-surface flex items-center gap-2 border border-outline-variant/30 active:scale-95 transition-all"
+        >
+          <Icon name="group_add" />
+          Manage Signers
+        </button>
+      </div>
+
+      <IdentityCard secret={mySecret} commitment={myCommitment} />
+    </>
+  );
+}

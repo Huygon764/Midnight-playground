@@ -1,8 +1,0 @@
-{
-  "name": "@example/private-token-test",
-  "version": "0.1.0",
-  "private": true,
-  "type": "module",
-  "scripts": { "test": "vitest run" },
-  "dependencies": { "@example/private-token-contract": "*" }
-}

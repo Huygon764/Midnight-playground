@@ -2,7 +2,7 @@
 
 ## Overview
 
-PolyPay is a private multisig wallet on Midnight blockchain. We upgraded from unshielded tokens (all data public on-chain) to shielded tokens (private deposits, private transfers via Zswap zero-knowledge protocol).
+MPay is a private multisig wallet on Midnight blockchain. We upgraded from unshielded tokens (all data public on-chain) to shielded tokens (private deposits, private transfers via Zswap zero-knowledge protocol).
 
 ### Privacy comparison
 
@@ -18,7 +18,7 @@ PolyPay is a private multisig wallet on Midnight blockchain. We upgraded from un
 
 ```
 token.compact      — mintShieldedToken + sendShielded (mint to self, send to user)
-polypay.compact    — receiveShielded (deposit) + sendShielded (transfer)
+mpay.compact    — receiveShielded (deposit) + sendShielded (transfer)
 crypto.ts          — AES-256-GCM encrypt/decrypt proposal data (vault key)
 witnesses.ts       — transferRecipient + transferAmount (private execute params)
 ```
@@ -26,7 +26,7 @@ witnesses.ts       — transferRecipient + transferAmount (private execute param
 ### Designed flow
 
 1. **Mint**: token.compact mints shielded tokens to user wallet
-2. **Deposit**: user deposits shielded coin into polypay vault via `receiveShielded`
+2. **Deposit**: user deposits shielded coin into MPay vault via `receiveShielded`
 3. **Propose**: signer encrypts (recipient, amount) with vault key, stores hash + encrypted data on-chain
 4. **Approve**: other signers approve via nullifier (anonymous voting)
 5. **Execute**: signer decrypts proposal, sets witness, circuit calls `sendShielded` from vault to recipient
@@ -45,7 +45,7 @@ witnesses.ts       — transferRecipient + transferAmount (private execute param
 
 **Result**: Full shielded kernel flow confirmed end-to-end on preprod via `test-shielded.html` — `mintShieldedToSelf`, `mintShieldedToUser`, `receiveShieldedTokens` all pass.
 
-**Details**: See `polypay/docs/adr/006-shielded-kernel-ops-zkconfig.md`.
+**Details**: See `m-pay/docs/adr/006-shielded-kernel-ops-zkconfig.md`.
 
 ### 2. Error 186 — EffectsCheckFailure on executeTransfer (2026-04-15 ~ 04-16, resolved)
 
@@ -57,7 +57,7 @@ Source: `midnightntwrk/midnight-node` → `ledger/src/versions/common/types.rs` 
 
 #### Why we hit it
 
-After the proof server fix, the full polypay flow (deploy → mint → deposit → propose → approve → execute) worked up to `executeTransfer`. The execute circuit calls `sendShielded(coin, recipient, amount)` to send tokens from vault to recipient. When `amount < coin.value`, Midnight creates a "change" output (leftover value). The contract must claim this change back into its vault using `vaultCoin.insertCoin(key, result.change.value, self)`.
+After the proof server fix, the full MPay flow (deploy → mint → deposit → propose → approve → execute) worked up to `executeTransfer`. The execute circuit calls `sendShielded(coin, recipient, amount)` to send tokens from vault to recipient. When `amount < coin.value`, Midnight creates a "change" output (leftover value). The contract must claim this change back into its vault using `vaultCoin.insertCoin(key, result.change.value, self)`.
 
 This `insertCoin` call triggered error 186 every time — regardless of whether it was inside an `if` branch, outside the `if`, or preceded by `receiveShielded`.
 
@@ -106,7 +106,7 @@ We binary-searched the field count using `test-shielded.compact` (adding dummy l
 | 16 | 5 | yes | **186** |
 | 17 | 5 | yes | 186 |
 
-And when we restored auth checks (5 reads) in polypay without insertCoin:
+And when we restored auth checks (5 reads) in MPay without insertCoin:
 
 | Fields | Reads | insertCoin | Result |
 |--------|-------|-----------|--------|
@@ -211,7 +211,7 @@ Reverted all changes. Stuck with the original flow: `deposit → propose → app
 
 ## Current status (2026-04-17)
 
-`polypay/contract/src/polypay.compact` has a **working executeTransfer**: 3-read Option A with signer auth + stamp check + full coin spend. Tested end-to-end on preprod.
+`m-pay/contract/src/mpay.compact` has a **working executeTransfer**: 3-read Option A with signer auth + stamp check + full coin spend. Tested end-to-end on preprod.
 
 **What works**: deploy, mint, deposit, propose, approve, execute (3-read full-coin-spend), add/remove signer, set threshold, encrypted proposals, vault key management, coin selection by exact value.
 
@@ -235,13 +235,13 @@ Reverted all changes. Stuck with the original flow: `deposit → propose → app
 
 | File | Purpose |
 |------|---------|
-| `polypay/contract/src/polypay.compact` | Main contract (3-read Option A) |
-| `polypay/contract/src/token.compact` | Token mint (shielded) |
-| `polypay/contract/src/test-shielded.compact` | Bisect playground for 186 investigation |
-| `polypay/contract/src/witnesses.ts` | Witness functions (localSecret + transfer params) |
-| `polypay/api/src/crypto.ts` | AES-256-GCM proposal encryption |
-| `polypay/api/src/index.ts` | PolyPayAPI with encrypted propose + witness execute |
-| `polypay/web/src/TestShieldedPage.tsx` | Standalone shielded test page |
-| `polypay/web/src/providers.ts` | zkConfigProvider Proxy workaround (ADR-006) |
-| `polypay/docs/adr/006-shielded-kernel-ops-zkconfig.md` | Proof server 400 root-cause and fix |
+| `m-pay/contract/src/mpay.compact` | Main contract (3-read Option A) |
+| `m-pay/contract/src/token.compact` | Token mint (shielded) |
+| `m-pay/contract/src/test-shielded.compact` | Bisect playground for 186 investigation |
+| `m-pay/contract/src/witnesses.ts` | Witness functions (localSecret + transfer params) |
+| `m-pay/api/src/crypto.ts` | AES-256-GCM proposal encryption |
+| `m-pay/api/src/index.ts` | MPayAPI with encrypted propose + witness execute |
+| `m-pay/web/src/TestShieldedPage.tsx` | Standalone shielded test page |
+| `m-pay/web/src/providers.ts` | zkConfigProvider Proxy workaround (ADR-006) |
+| `m-pay/docs/adr/006-shielded-kernel-ops-zkconfig.md` | Proof server 400 root-cause and fix |
 | `docs/SHIELDED_TOKEN_STATUS.md` | This file |

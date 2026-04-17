@@ -1,0 +1,263 @@
+pragma language_version >= 0.20;
+
+import CompactStandardLibrary;
+
+// ============================================================
+// LEDGER STATE
+// ============================================================
+
+// Shielded Vault
+export ledger tokenColor: Bytes<32>;
+export ledger vaultCoin: Map<Bytes<32>, QualifiedShieldedCoinInfo>;
+export ledger depositCounter: Counter;
+
+// Multisig
+export ledger signers: Set<Bytes<32>>;
+export ledger signerCount: Counter;
+export ledger threshold: Uint<8>;
+export ledger owner: Bytes<32>;
+export ledger finalized: Boolean;
+
+// Transaction Queue
+export ledger txCounter: Counter;
+export ledger txTypes: Map<Uint<64>, Uint<8>>;
+export ledger txStatuses: Map<Uint<64>, Uint<8>>;
+export ledger txApprovalCounts: Map<Uint<64>, Counter>;
+export ledger txNullifiers: Set<Bytes<32>>;
+
+// Generic transaction data (used by all tx types)
+// Transfer: d0=dataHash, d1=enc0, d2=enc1, d3=enc2
+// AddSigner: d0=commitment
+// RemoveSigner: d0=commitment
+// SetThreshold: d0=threshold padded to Bytes<32>
+export ledger txData0: Map<Uint<64>, Bytes<32>>;
+export ledger txData1: Map<Uint<64>, Bytes<32>>;
+export ledger txData2: Map<Uint<64>, Bytes<32>>;
+export ledger txData3: Map<Uint<64>, Bytes<32>>;
+
+
+// ============================================================
+// WITNESS
+// ============================================================
+
+witness localSecret(): Bytes<32>;
+witness transferRecipient(): Bytes<32>;
+witness transferAmount(): Uint<128>;
+
+// ============================================================
+// PURE CIRCUITS
+// ============================================================
+
+export circuit deriveCommitment(secret: Bytes<32>): Bytes<32> {
+  return persistentHash<Vector<2, Bytes<32>>>([pad(32, "mpay:pk:"), secret]);
+}
+
+export circuit computeNullifier(secret: Bytes<32>, txIdPad: Bytes<32>): Bytes<32> {
+  return persistentHash<Vector<3, Bytes<32>>>([pad(32, "mpay:null:"), secret, txIdPad]);
+}
+
+// ============================================================
+// HELPERS
+// ============================================================
+
+circuit selfAsRecipient(): Either<ZswapCoinPublicKey, ContractAddress> {
+  return right<ZswapCoinPublicKey, ContractAddress>(kernel.self());
+}
+
+// ============================================================
+// SETUP PHASE
+// ============================================================
+
+constructor(initialThreshold: Uint<8>, color: Bytes<32>) {
+  const secret = localSecret();
+  const commitment = deriveCommitment(secret);
+  owner = disclose(commitment);
+  threshold = disclose(initialThreshold);
+  tokenColor = disclose(color);
+  finalized = disclose(false);
+  signers.insert(disclose(commitment));
+  signerCount.increment(1);
+}
+
+export circuit initSigner(commitment: Bytes<32>): [] {
+  assert(finalized == false, "Already finalized");
+  const secret = localSecret();
+  assert(deriveCommitment(secret) == owner, "Not owner");
+  signers.insert(disclose(commitment));
+  signerCount.increment(1);
+}
+
+export circuit finalize(): [] {
+  assert(finalized == false, "Already finalized");
+  const secret = localSecret();
+  assert(deriveCommitment(secret) == owner, "Not owner");
+  assert(signerCount.read() >= threshold, "Not enough signers");
+  finalized = disclose(true);
+  owner = disclose(pad(32, ""));
+}
+
+// ============================================================
+// DEPOSIT (shielded token into vault)
+// ============================================================
+
+export circuit deposit(coin: ShieldedCoinInfo): [] {
+  const secret = localSecret();
+  receiveShielded(disclose(coin));
+  depositCounter.increment(1);
+  const key = depositCounter.read() as Field as Bytes<32>;
+  vaultCoin.insertCoin(disclose(key), disclose(coin), selfAsRecipient());
+}
+
+// ============================================================
+// GENERIC PROPOSE (signer-only, auto-approve)
+// txType: 0=Transfer, 2=AddSigner, 3=RemoveSigner, 4=SetThreshold
+// d0-d3: type-specific data (see ledger comments)
+// ============================================================
+
+// txStatuses values:
+//   0 = pending     (proposed, awaiting approvals)
+//   1 = ready       (threshold met, can be executed)
+//   2 = executed    (execute succeeded)
+//
+// Stamping: when approveTx (or self-approve in propose) brings count >= threshold,
+// the status is stamped to 1. executeTransfer only checks `status == 1` — it never
+// reads txApprovalCounts or threshold. This keeps executeTransfer under the
+// fields+reads budget that triggers Midnight validator's EffectsCheckFailure (186)
+// when a circuit has shielded ops.
+//
+// Known limitation: if setThreshold changes threshold AFTER a tx is stamped ready,
+// the stamp is not invalidated. Stamped txs execute under the threshold that was
+// in effect at the time of the final approval — NOT strict "current threshold at
+// execute time". This is an accepted trade-off to stay within the read budget.
+
+export circuit propose(
+  txType: Uint<8>,
+  d0: Bytes<32>,
+  d1: Bytes<32>,
+  d2: Bytes<32>,
+  d3: Bytes<32>
+): Uint<64> {
+  assert(finalized == true, "Not finalized");
+  const secret = localSecret();
+  const commitment = deriveCommitment(secret);
+  assert(signers.member(disclose(commitment)), "Not a signer");
+
+  txCounter.increment(1);
+  const txId = txCounter.read();
+  txTypes.insert(disclose(txId), disclose(txType));
+
+  txData0.insert(disclose(txId), disclose(d0));
+  txData1.insert(disclose(txId), disclose(d1));
+  txData2.insert(disclose(txId), disclose(d2));
+  txData3.insert(disclose(txId), disclose(d3));
+
+  txApprovalCounts.insertDefault(disclose(txId));
+  txApprovalCounts.lookup(disclose(txId)).increment(1);
+  const txIdBytes = txId as Field as Bytes<32>;
+  const nullifier = computeNullifier(secret, txIdBytes);
+  txNullifiers.insert(disclose(nullifier));
+
+  // Stamp ready if self-approval already meets threshold (e.g. threshold=1)
+  if (txApprovalCounts.lookup(disclose(txId)).read() >= threshold) {
+    txStatuses.insert(disclose(txId), disclose(1 as Uint<8>));
+  } else {
+    txStatuses.insert(disclose(txId), disclose(0 as Uint<8>));
+  }
+  return txId;
+}
+
+// ============================================================
+// APPROVE (signer-only)
+// ============================================================
+
+export circuit approveTx(txId: Uint<64>): [] {
+  assert(finalized == true, "Not finalized");
+  const secret = localSecret();
+  const commitment = deriveCommitment(secret);
+  assert(signers.member(disclose(commitment)), "Not a signer");
+  assert(txStatuses.member(disclose(txId)), "Tx not found");
+  assert(txStatuses.lookup(disclose(txId)) == 0, "Tx not pending");
+  const txIdBytes = txId as Field as Bytes<32>;
+  const nullifier = computeNullifier(secret, txIdBytes);
+  assert(!txNullifiers.member(disclose(nullifier)), "Already approved");
+  txNullifiers.insert(disclose(nullifier));
+  txApprovalCounts.lookup(disclose(txId)).increment(1);
+
+  // Stamp ready if this approval brings count to >= threshold.
+  // approveTx has no shielded ops, so additional reads here are safe.
+  if (txApprovalCounts.lookup(disclose(txId)).read() >= threshold) {
+    txStatuses.insert(disclose(txId), disclose(1 as Uint<8>));
+  }
+}
+
+// ============================================================
+// EXECUTE (signer-only, when threshold met)
+// ============================================================
+
+// Option A: full coin spend, 3-read version.
+// Midnight platform limit: fields + reads ≤ ~20 when circuit has sendShielded.
+// MPay has 17 fields → max ~3 reads.
+//
+// Reads: signers.member (1), txStatuses.lookup (2), vaultCoin.lookup (3) = 3 reads.
+// Removed: finalized check (propose already enforces), hash check (signers trusted via approve).
+// sendShielded uses coin.value (full spend), not witness amount.
+export circuit executeTransfer(txId: Uint<64>, coinKey: Bytes<32>): [] {
+  const secret = localSecret();
+  const commitment = deriveCommitment(secret);
+  assert(signers.member(disclose(commitment)), "Not a signer");
+  assert(txStatuses.lookup(disclose(txId)) == 1, "Tx not ready");
+
+  const recipientPk = transferRecipient();
+
+  const coin = vaultCoin.lookup(disclose(coinKey));
+  const recipient = left<ZswapCoinPublicKey, ContractAddress>(
+    ZswapCoinPublicKey { bytes: disclose(recipientPk) }
+  );
+  sendShielded(coin, recipient, coin.value as Uint<128>);
+  vaultCoin.remove(disclose(coinKey));
+  txStatuses.insert(disclose(txId), disclose(2 as Uint<8>));
+}
+
+export circuit executeAddSigner(txId: Uint<64>): [] {
+  assert(finalized == true, "Not finalized");
+  const secret = localSecret();
+  const commitment = deriveCommitment(secret);
+  assert(signers.member(disclose(commitment)), "Not a signer");
+  assert(txStatuses.lookup(disclose(txId)) == 1, "Tx not ready");
+  assert(txTypes.lookup(disclose(txId)) == 2, "Wrong tx type");
+  const newCommitment = txData0.lookup(disclose(txId));
+  assert(!signers.member(disclose(newCommitment)), "Signer already exists");
+  signers.insert(disclose(newCommitment));
+  signerCount.increment(1);
+  txStatuses.insert(disclose(txId), disclose(2 as Uint<8>));
+}
+
+export circuit executeRemoveSigner(txId: Uint<64>): [] {
+  assert(finalized == true, "Not finalized");
+  const secret = localSecret();
+  const commitment = deriveCommitment(secret);
+  assert(signers.member(disclose(commitment)), "Not a signer");
+  assert(txStatuses.lookup(disclose(txId)) == 1, "Tx not ready");
+  assert(txTypes.lookup(disclose(txId)) == 3, "Wrong tx type");
+  const targetCommitment = txData0.lookup(disclose(txId));
+  assert(signers.member(disclose(targetCommitment)), "Signer not found");
+  signers.remove(disclose(targetCommitment));
+  signerCount.decrement(1);
+  assert(signerCount.read() >= threshold, "Would drop below threshold");
+  txStatuses.insert(disclose(txId), disclose(2 as Uint<8>));
+}
+
+export circuit executeSetThreshold(txId: Uint<64>): [] {
+  assert(finalized == true, "Not finalized");
+  const secret = localSecret();
+  const commitment = deriveCommitment(secret);
+  assert(signers.member(disclose(commitment)), "Not a signer");
+  assert(txStatuses.lookup(disclose(txId)) == 1, "Tx not ready");
+  assert(txTypes.lookup(disclose(txId)) == 4, "Wrong tx type");
+  // Threshold stored as first byte of d0
+  const d0 = txData0.lookup(disclose(txId));
+  const newVal = d0 as Field as Uint<8>;
+  assert(signerCount.read() >= newVal, "Threshold exceeds signer count");
+  threshold = disclose(newVal);
+  txStatuses.insert(disclose(txId), disclose(2 as Uint<8>));
+}

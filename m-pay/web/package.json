@@ -1,0 +1,29 @@
+{
+  "name": "@m-pay/web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "copy-keys": "rm -rf public/keys public/zkir && mkdir -p public/keys public/zkir && cp ../contract/src/managed/mpay/keys/* public/keys/ && cp ../contract/src/managed/mpay/zkir/* public/zkir/ && cp ../contract/src/managed/token/keys/* public/keys/ && cp ../contract/src/managed/token/zkir/* public/zkir/",
+    "dev": "npm run copy-keys && vite --mode preprod",
+    "build": "tsc && vite build --mode preprod && cp -r ../contract/src/managed/mpay/keys ./dist/keys && cp -r ../contract/src/managed/mpay/zkir ./dist/zkir && cp ../contract/src/managed/token/keys/* ./dist/keys/ && cp ../contract/src/managed/token/zkir/* ./dist/zkir/",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@midnight-ntwrk/dapp-connector-api": "4.0.1",
+    "@m-pay/api": "*",
+    "@tailwindcss/vite": "^4.2.2",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "tailwindcss": "^4.2.2"
+  },
+  "devDependencies": {
+    "@types/react": "^19.1.6",
+    "@types/react-dom": "^19.1.6",
+    "@vitejs/plugin-react": "^4.6.1",
+    "typescript": "^5.9.3",
+    "vite": "^7.0.0",
+    "vite-plugin-top-level-await": "^1.5.0",
+    "vite-plugin-wasm": "^3.4.1"
+  }
+}

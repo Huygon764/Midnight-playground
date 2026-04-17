@@ -1,0 +1,88 @@
+pragma language_version >= 0.20;
+
+import CompactStandardLibrary;
+
+// ============================================================
+// LEDGER STATE
+// ============================================================
+
+export ledger tokenColor: Bytes<32>;
+export ledger totalMinted: Counter;
+export ledger nonceCounter: Counter;
+export ledger nonceSeed: Bytes<32>;
+
+// ============================================================
+// WITNESS
+// ============================================================
+
+witness localSecret(): Bytes<32>;
+
+// ============================================================
+// PURE
+// ============================================================
+
+export circuit deriveCommitment(secret: Bytes<32>): Bytes<32> {
+  return persistentHash<Vector<2, Bytes<32>>>([pad(32, "mpay:pk:"), secret]);
+}
+
+// ============================================================
+// SETUP
+// ============================================================
+
+constructor() {
+  const secret = localSecret();
+  const commitment = deriveCommitment(secret);
+  nonceSeed = disclose(persistentHash<Vector<2, Bytes<32>>>([pad(32, "mpay:tnonce:"), disclose(commitment)]));
+}
+
+// ============================================================
+// MINT — exact pattern from Midnight docs (token-transfers example)
+// Mint to self then sendShielded to recipient
+// ============================================================
+
+export circuit mint(
+  amount: Uint<64>,
+  publicKey: ZswapCoinPublicKey,
+  sendValue: Uint<128>
+): ShieldedSendResult {
+  // Force witness-based proving key (ADR-001: witness-free circuits with
+  // complex kernel ops produce undersized proving keys → proof server 400)
+  const secret = localSecret();
+  assert(disclose(amount) > 0, "Amount must be positive");
+
+  // Evolve nonce
+  nonceCounter.increment(1);
+  const idx = nonceCounter.read() as Uint<128>;
+  const mintNonce = evolveNonce(idx, nonceSeed);
+  nonceSeed = disclose(mintNonce);
+
+  // Mint shielded token to this contract (self)
+  const domain = pad(32, "mpay:token:");
+  const coin = mintShieldedToken(
+    disclose(domain),
+    disclose(amount),
+    disclose(mintNonce),
+    right<ZswapCoinPublicKey, ContractAddress>(kernel.self())
+  );
+
+  // Store token color on first mint
+  if (tokenColor == pad(32, "")) {
+    tokenColor = disclose(coin.color);
+  }
+
+  // Send to recipient via sendShielded (official pattern)
+  const qualified = QualifiedShieldedCoinInfo {
+    nonce: coin.nonce,
+    color: coin.color,
+    value: coin.value,
+    mt_index: 0 as Uint<64>
+  };
+  const result = sendShielded(
+    qualified,
+    left<ZswapCoinPublicKey, ContractAddress>(disclose(publicKey)),
+    disclose(sendValue)
+  );
+
+  totalMinted.increment(disclose(amount) as Uint<16>);
+  return result;
+}

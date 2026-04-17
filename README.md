@@ -1,101 +1,44 @@
-# Midnight Playground
+# M-pay
 
-A progressive collection of 5 example projects for learning **Compact smart contract language** on the **Midnight blockchain**, plus **PolyPay** — a privacy-preserving multisig wallet.
+Privacy-preserving multisig wallet built on the **Midnight blockchain (Preprod)**. Signers are identified by ZK commitments (hash of a local secret); nobody on-chain can tell which signer approved which transaction. Transfer proposals are AES-GCM encrypted under a vault key shared among signers.
 
-## PolyPay
+See [`m-pay/`](m-pay/) for the full project — contracts, API, Web UI, and detailed setup instructions.
 
-| Project | Description | Components |
-|---------|-------------|------------|
-| [polypay](polypay/) | Private multisig wallet — signers identified by ZK commitments, anonymous approvals via nullifiers, AES-GCM encrypted transfer proposals, shielded POLY token | Contract (9 circuits) + Token Contract + API + Web UI |
+## Quick Links
 
-## Examples
-
-| # | Name | Concepts | Components |
-|---|------|----------|------------|
-| 01 | [simple-counter](examples/01-simple-counter/) | Counter ADT, impure circuits, compile output | Contract + Test + CLI |
-| 02 | [secret-counter](examples/02-secret-counter/) | Witness, persistentHash, owner authentication | Contract + Test + CLI |
-| 03 | [private-voting](examples/03-private-voting/) | HistoricMerkleTree, commitment/nullifier, Set, disclose, domain separator | Contract + Test + CLI + Web |
-| 04 | [private-token](examples/04-private-token/) | Contract token, Map balances, transfer with ZKP, Opaque type | Contract + Test + CLI + Web |
-| 05 | [payroll-lite](examples/05-payroll-lite/) | Full commit/nullifier flow, resetHistory, employer/employee roles | Contract + Test + CLI + Web |
+- [m-pay/README.md](m-pay/README.md) — setup, usage, architecture
+- [docs/SHIELDED_TOKEN_STATUS.md](docs/SHIELDED_TOKEN_STATUS.md) — shielded-ops investigation timeline (error 186, recipient notification)
+- [m-pay/docs/adr/](m-pay/docs/adr/) — ADRs documenting design decisions
 
 ## Prerequisites
 
-- [Compact compiler](https://docs.midnight.network/) v0.30.0
-- Node.js >= 18
-- Docker (for proof server)
-- [Lace wallet](https://www.lace.io/) Chrome extension (for Web UI)
+- Compact compiler v0.30.0 — [install guide](https://docs.midnight.network/getting-started/installation/)
+- Node.js >= 20
+- Docker Desktop (for proof server)
+- [Midnight Lace Wallet](https://chromewebstore.google.com/detail/lace/gafhhkghbfjjkeiendhlofajokpaflmk) Chrome extension
 
 ## Quick Start
 
 ```bash
-# Enter any example
-cd examples/01-simple-counter
-
-# Install dependencies
-npm install
-
-# Compile contract
-cd contract && npm run compact && cd ..
-
-# Run unit tests (offline, no chain needed)
-cd test && npx vitest run && cd ..
-```
-
-## On-Chain Deployment
-
-```bash
-# Start proof server (Docker required)
+# Start proof server
 docker run -p 6300:6300 midnightntwrk/proof-server:8.0.3 -- midnight-proof-server -v
 
-# Run CLI (fund wallet via https://faucet.preprod.midnight.network/)
-cd cli && npm run cli
+# Build & run M-pay
+cd m-pay
+npm install
+cd contract && npm run compact && npm run build && cd ..
+cd web && npm run dev
 ```
 
-## Web UI (Examples 3-5)
+Open http://localhost:5173 with Lace wallet installed.
 
-```bash
-cd web && npm install && npm run dev
-# Open http://localhost:5173 with Lace wallet extension
-```
+## Dependencies
 
-## Architecture
-
-Each example follows a 3-layer architecture:
-
-```
-On-chain (Public Ledger)     ZK Circuit (Prove/Verify)     Off-chain (Private)
------------------------     -------------------------     -------------------
-Ledger fields               Arithmetic circuit            Secret data (LevelDB)
-Verifying key               Proving key + ZKIR            Witness functions
-Nullifier set               Proof server (local)          Private state
-Commitment tree root        Generated TypeScript API      User's secret key
-```
-
-## Compatibility
-
-| Component | Examples | PolyPay |
-|-----------|----------|---------|
-| Compact Compiler | 0.30.0 | 0.30.0 |
-| Compact Runtime | 0.15.0 | 0.15.0 |
-| Proof Server | 8.0.3 | 8.0.3 |
-| Midnight JS SDK | 3.0.0 | 4.0.2 |
-| Ledger | v3 | v8 (shielded kernel ops) |
-| Network | Preprod | Preprod |
-
-## Reference Repos
-
-- [example-counter](https://github.com/midnightntwrk/example-counter)
-- [example-bboard](https://github.com/midnightntwrk/example-bboard)
-- [example-hello-world](https://github.com/midnightntwrk/example-hello-world)
-
-## Test Results
-
-All 45 tests pass across 5 examples:
-
-| Example | Tests |
-|---------|-------|
-| 01-simple-counter | 7/7 |
-| 02-secret-counter | 8/8 |
-| 03-private-voting | 11/11 |
-| 04-private-token | 8/8 |
-| 05-payroll-lite | 11/11 |
+| Component | Version |
+|-----------|---------|
+| Compact Compiler | 0.30.0 |
+| Compact Runtime | 0.15.0 |
+| Midnight JS SDK | 4.0.2 |
+| Ledger | v8 |
+| Proof Server | 8.0.3 |
+| Network | Preprod |
