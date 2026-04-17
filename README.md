@@ -128,6 +128,17 @@ In the Transactions tab:
 
 > **Important — back up your signer secret and vault key.** Browsers can lose state. See [docs/DESIGN_NOTES.md](docs/DESIGN_NOTES.md#back-up-your-keys).
 
+## Known Limitations
+
+- **Vault key must be shared out-of-band** — dApp generates one per multisig; deployer copies the hex and gives to co-signers. Per-signer encryption doesn't fit Midnight's circuit budget.
+- **Partial-value transfers not supported** — Transfers spend a full vault coin. Deposit the exact amount you want to send.
+- **Recipient must execute their own transfer** — `sendShielded` on Midnight currently doesn't notify external wallets. If the recipient isn't a signer, they won't see the coin after execute.
+- **Token name invisible in Lace wallet** — Midnight has no on-chain token metadata standard. Lace shows custom tokens as "Shielded unnamed token (…)". The dApp labels it `MPAY`.
+- **Browser-local state, no sync** — clearing localStorage or switching browser = new signer identity.
+- **No on-chain unit tests** — tested end-to-end on preprod only.
+
+Full context in [docs/DESIGN_NOTES.md](docs/DESIGN_NOTES.md#pending--known-limitations) and [docs/SHIELDED_TOKEN_STATUS.md](docs/SHIELDED_TOKEN_STATUS.md).
+
 ## Further reading
 
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — repo structure, contracts, transaction types, privacy model, key files
