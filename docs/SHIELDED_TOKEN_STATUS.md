@@ -183,9 +183,33 @@ Flow for payroll:
 
 This requires the recipient to be a signer of the multisig. For a payroll model where employees are org members, this is a natural fit.
 
+### 4. Attempted "deposit-in-propose" UX merge (2026-04-17, reverted)
+
+#### Motivation
+
+The current flow has a UX wart: the user must `deposit` an exact-amount coin first, then `propose` a transfer with matching amount. Coin selection at execute time uses `coin.value === amount`. Idea: fold the deposit into propose — `proposeTransfer(coin, ...)` would `receiveShielded(coin)` + `vaultCoin.insertCoin(txId, coin, self)` in one circuit, keyed by the newly-assigned txId. Then `executeTransfer(txId)` just derives the coin key from txId, no lookup list needed.
+
+#### What we tried
+
+- Dropped `depositCounter` → 16 ledger fields (from 17).
+- Split `propose` into `proposeTransfer(coin, d0-d3)` + `proposeAction(txType, d0-d3)`.
+- `executeTransfer(txId)` — dropped the `coinKey` param.
+
+First attempt: `proposeTransfer` with full propose logic (signers.member, txCounter.read, txApprovalCounts self-approve + if-stamp). Failed 186 on preprod.
+
+Second attempt: Dropped self-approve and if-stamp in `proposeTransfer` (proposer must call `approveTx` after). Budget: 16 fields + 2 reads (signers.member + txCounter.read) = 18. Still failed 186 on preprod.
+
+#### Lesson
+
+The fields+reads ≤ 20 rule (from the executeTransfer investigation) is an approximation. When a circuit combines `receiveShielded + insertCoin` with other inserts (txTypes, txData0-3, txStatuses, txApprovalCounts.insertDefault), the effective budget is tighter than the standalone `deposit` circuit at 17 fields + 1 read suggests. Adding even a few reads + a handful of inserts on top of `receiveShielded + insertCoin` blows past the limit.
+
+#### Outcome
+
+Reverted all changes. Stuck with the original flow: `deposit → propose → approve → executeTransfer(txId, coinKey)`. The UX wart (exact-value coin selection) stays for now.
+
 ---
 
-## Current status (2026-04-16)
+## Current status (2026-04-17)
 
 `polypay/contract/src/polypay.compact` has a **working executeTransfer**: 3-read Option A with signer auth + stamp check + full coin spend. Tested end-to-end on preprod.
 
