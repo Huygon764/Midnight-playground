@@ -2,32 +2,51 @@ import { useState } from "react";
 import type { DeployedTokenAPI } from "../../../api/src/index.js";
 import type { DoAction } from "../types.js";
 import { truncateHex, hexToBytes } from "../utils.js";
-import { toHex } from "@midnight-ntwrk/midnight-js-utils";
+import { MidnightBech32m, ShieldedAddress } from "@midnight-ntwrk/wallet-sdk-address-format";
 import { Icon, CopyButton } from "./ui.js";
 
+const NETWORK_ID = (import.meta.env.VITE_NETWORK_ID ?? "preprod") as string;
+
+function parseRecipientAddress(input: string): Uint8Array {
+  const trimmed = input.trim();
+  if (trimmed.startsWith("mn_shield-addr_")) {
+    const parsed = MidnightBech32m.parse(trimmed);
+    const decoded = parsed.decode(ShieldedAddress, NETWORK_ID as any);
+    return new Uint8Array(decoded.coinPublicKey.data);
+  }
+  const bytes = hexToBytes(trimmed);
+  if (bytes.length !== 32) {
+    throw new Error("Recipient must be a shielded address (mn_shield-addr_...) or 32-byte hex");
+  }
+  return bytes;
+}
+
 export function TokenPage({
-  tokenApi,
+  tokenApi: _tokenApi,
   tokenAddress,
   tokenColor,
-  myAddress,
-  myShieldedCpk,
+  myAddress: _myAddress,
+  myShieldedAddress,
   isWorking,
-  doAction,
+  doAction: _doAction,
   onDeploy,
+  onJoin,
   onMint,
 }: {
   tokenApi: DeployedTokenAPI | null;
   tokenAddress: string;
   tokenColor: string;
   myAddress: string;
-  myShieldedCpk: string;
+  myShieldedAddress: string;
   isWorking: boolean;
   doAction: DoAction;
   onDeploy: () => void;
+  onJoin: (address: string) => void;
   onMint: (amount: bigint, recipientPk: Uint8Array) => void;
 }) {
   const [mintAmount, setMintAmount] = useState("");
-  const [mintRecipientPk, setMintRecipientPk] = useState("");
+  const [mintRecipient, setMintRecipient] = useState("");
+  const [joinAddr, setJoinAddr] = useState("");
 
   if (!tokenAddress) {
     return (
@@ -35,24 +54,49 @@ export function TokenPage({
         <div className="space-y-2 mb-8">
           <h2 className="text-4xl font-headline font-extrabold tracking-tight">Shielded Token</h2>
           <p className="text-on-surface-variant max-w-xl">
-            Deploy a shielded token contract. Tokens are minted as shielded coins
-            using mintShieldedToken — amounts and recipients are private.
+            Deploy a new shielded token contract, or reconnect to a previously deployed one.
+            Tokens are minted as shielded coins — amounts and recipients are private.
           </p>
         </div>
-        <div className="max-w-md">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-3xl">
           <div className="bg-surface-container-low rounded-2xl p-8 space-y-6">
             <div className="flex items-center gap-3">
               <div className="w-12 h-12 rounded-2xl bg-surface-container-highest flex items-center justify-center">
                 <Icon name="token" className="text-primary text-xl" />
               </div>
               <div>
-                <h3 className="text-xl font-headline font-bold">Deploy Token Contract</h3>
-                <p className="text-xs text-outline">Creates shielded custom token</p>
+                <h3 className="text-xl font-headline font-bold">Deploy New</h3>
+                <p className="text-xs text-outline">Creates a fresh shielded token contract</p>
               </div>
             </div>
             <button onClick={onDeploy} disabled={isWorking}
               className="w-full py-4 rounded-xl gradient-btn text-on-primary font-headline font-extrabold text-lg disabled:opacity-50">
               Deploy Shielded Token
+            </button>
+          </div>
+
+          <div className="bg-surface-container-low rounded-2xl p-8 space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-2xl bg-surface-container-highest flex items-center justify-center">
+                <Icon name="link" className="text-secondary text-xl" />
+              </div>
+              <div>
+                <h3 className="text-xl font-headline font-bold">Reconnect Existing</h3>
+                <p className="text-xs text-outline">Paste a token contract address</p>
+              </div>
+            </div>
+            <input
+              placeholder="0x..."
+              value={joinAddr}
+              onChange={(e) => setJoinAddr(e.target.value)}
+              className="w-full bg-surface-container-highest border-none rounded-xl py-3 px-4 text-on-surface font-label text-sm focus:ring-2 focus:ring-primary/50 transition-all outline-none placeholder:text-outline/40"
+            />
+            <button
+              onClick={() => onJoin(joinAddr.trim())}
+              disabled={isWorking || !joinAddr.trim()}
+              className="w-full py-4 rounded-xl bg-surface-container-highest hover:bg-surface-bright text-on-surface font-headline font-bold text-lg border border-outline-variant/30 disabled:opacity-50 flex items-center justify-center gap-2"
+            >
+              Reconnect <Icon name="arrow_forward" className="text-sm" />
             </button>
           </div>
         </div>
@@ -108,12 +152,13 @@ export function TokenPage({
                 className="w-full bg-surface-container-highest border-none rounded-xl py-3 px-4 text-on-surface font-label focus:ring-2 focus:ring-primary/50 transition-all outline-none" />
             </div>
             <div>
-              <label className="block text-xs font-headline font-bold text-outline mb-1">Recipient Shielded Coin Public Key (hex)</label>
-              <input placeholder="64 hex chars" value={mintRecipientPk} onChange={(e) => setMintRecipientPk(e.target.value)}
+              <label className="block text-xs font-headline font-bold text-outline mb-1">Recipient Address</label>
+              <input placeholder="mn_shield-addr_preprod1... or 32-byte hex"
+                value={mintRecipient} onChange={(e) => setMintRecipient(e.target.value)}
                 className="w-full bg-surface-container-highest border-none rounded-xl py-3 px-4 text-on-surface font-label text-sm focus:ring-2 focus:ring-primary/50 transition-all outline-none placeholder:text-outline/40" />
-              {myShieldedCpk && !mintRecipientPk && (
-                <button onClick={() => setMintRecipientPk(myShieldedCpk)} className="mt-1 text-xs text-primary hover:underline">
-                  Use my shielded key
+              {myShieldedAddress && !mintRecipient && (
+                <button onClick={() => setMintRecipient(myShieldedAddress)} className="mt-1 text-xs text-primary hover:underline">
+                  Use my shielded address
                 </button>
               )}
             </div>
@@ -126,14 +171,16 @@ export function TokenPage({
             </div>
             <button
               onClick={() => {
-                const pk = hexToBytes(mintRecipientPk);
-                if (pk.length !== 32) {
-                  alert("Recipient PK must be 32 bytes (64 hex chars)");
+                let pk: Uint8Array;
+                try {
+                  pk = parseRecipientAddress(mintRecipient);
+                } catch (e) {
+                  alert((e as Error).message);
                   return;
                 }
                 onMint(BigInt(Math.floor(Number(mintAmount))), pk);
               }}
-              disabled={isWorking || !mintAmount || !mintRecipientPk}
+              disabled={isWorking || !mintAmount || !mintRecipient}
               className="w-full py-3 rounded-xl gradient-btn text-on-primary font-headline font-bold disabled:opacity-50">
               Mint Shielded Tokens
             </button>

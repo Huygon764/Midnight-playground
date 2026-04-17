@@ -65,7 +65,11 @@ export function loadVaultKey(): string | null {
 }
 
 export function clearSession() {
+  // Vault key is scoped to the multisig contract — drop it alongside the
+  // contract address so the next connect starts clean instead of silently
+  // reusing a key that no longer matches anything.
   localStorage.removeItem(CONTRACT_KEY);
+  localStorage.removeItem(VAULT_KEY_KEY);
 }
 
 export function clearAll() {

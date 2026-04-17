@@ -1,7 +1,8 @@
 import { useState } from "react";
 import type { DeployedPolyPayAPI } from "../../../api/src/index.js";
 import type { DoAction } from "../types.js";
-import { hexToBytes } from "../utils.js";
+import { hexToBytes, truncateHex } from "../utils.js";
+import { confirmAction } from "./ui.js";
 import { SignerListCard } from "./SignerListCard.js";
 
 export function ProposeSignerTab({
@@ -13,8 +14,28 @@ export function ProposeSignerTab({
   doAction: DoAction;
   myCommitment: string;
 }) {
-  const [commitment, setCommitment] = useState("");
+  const [addCommitment, setAddCommitment] = useState("");
   const [newThreshold, setNewThreshold] = useState("");
+  const [refreshKey, setRefreshKey] = useState(0);
+
+  const handleProposeRemove = async (commitmentHex: string) => {
+    const isSelf = commitmentHex === myCommitment;
+    const ok = await confirmAction({
+      title: isSelf ? "Remove yourself as signer?" : "Remove signer?",
+      message: isSelf
+        ? "You will lose the ability to approve or execute transactions on this multisig."
+        : `Propose removal of signer ${truncateHex(commitmentHex)}. Other signers must approve before it takes effect.`,
+      confirmLabel: "Propose Remove",
+      cancelLabel: "Cancel",
+      destructive: true,
+    });
+    if (!ok) return;
+    doAction("Propose Remove Signer", async () => {
+      await api.proposeRemoveSigner(hexToBytes(commitmentHex));
+      setRefreshKey((k) => k + 1);
+    });
+  };
+
   return (
     <>
       <div className="space-y-2 mb-8">
@@ -29,45 +50,33 @@ export function ProposeSignerTab({
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         <div className="lg:col-span-7 space-y-6">
-          {/* Add / Remove Signer */}
-          <div className="bg-surface-container-low rounded-3xl p-8 space-y-6">
+          {/* Add Signer */}
+          <div className="bg-surface-container-low rounded-3xl p-8 space-y-4">
+            <h3 className="font-headline font-bold text-lg text-on-surface">Add Signer</h3>
             <div className="space-y-2">
               <label className="block font-label text-sm text-secondary tracking-wider">
                 COMMITMENT HEX
               </label>
               <input
                 placeholder="0x..."
-                value={commitment}
-                onChange={(e) => setCommitment(e.target.value)}
+                value={addCommitment}
+                onChange={(e) => setAddCommitment(e.target.value)}
                 className="w-full bg-surface-container-highest border-none rounded-2xl py-4 px-6 font-label text-on-surface placeholder:text-outline/50 focus:ring-2 focus:ring-primary/50 transition-all outline-none"
               />
             </div>
-            <div className="flex gap-3">
-              <button
-                onClick={() => {
-                  doAction("Propose Add Signer", () =>
-                    api.proposeAddSigner(hexToBytes(commitment)),
-                  );
-                  setCommitment("");
-                }}
-                disabled={!commitment}
-                className="flex-1 gradient-btn py-4 rounded-xl font-headline font-extrabold text-on-primary shadow-lg hover:brightness-110 active:scale-[0.98] transition-all disabled:opacity-50"
-              >
-                Propose Add
-              </button>
-              <button
-                onClick={() => {
-                  doAction("Propose Remove Signer", () =>
-                    api.proposeRemoveSigner(hexToBytes(commitment)),
-                  );
-                  setCommitment("");
-                }}
-                disabled={!commitment}
-                className="flex-1 py-4 rounded-xl font-headline font-extrabold text-error border border-error/30 hover:bg-error/10 active:scale-[0.98] transition-all disabled:opacity-50"
-              >
-                Propose Remove
-              </button>
-            </div>
+            <button
+              onClick={() => {
+                const c = addCommitment.trim();
+                doAction("Propose Add Signer", async () => {
+                  await api.proposeAddSigner(hexToBytes(c));
+                  setAddCommitment("");
+                });
+              }}
+              disabled={!addCommitment.trim()}
+              className="w-full gradient-btn py-4 rounded-xl font-headline font-extrabold text-on-primary shadow-lg hover:brightness-110 active:scale-[0.98] transition-all disabled:opacity-50"
+            >
+              Propose Add
+            </button>
           </div>
 
           {/* Set Threshold */}
@@ -86,11 +95,13 @@ export function ProposeSignerTab({
                 className="flex-1 bg-surface-container-highest border-none rounded-2xl py-4 px-6 font-label text-on-surface placeholder:text-outline/50 focus:ring-2 focus:ring-primary/50 transition-all outline-none"
               />
               <button
-                onClick={() =>
-                  doAction("Propose Set Threshold", () =>
-                    api.proposeSetThreshold(BigInt(newThreshold)),
-                  )
-                }
+                onClick={() => {
+                  const t = newThreshold;
+                  doAction("Propose Set Threshold", async () => {
+                    await api.proposeSetThreshold(BigInt(t));
+                    setNewThreshold("");
+                  });
+                }}
                 disabled={!newThreshold}
                 className="gradient-btn px-8 py-4 rounded-xl font-headline font-bold text-on-primary hover:brightness-110 active:scale-[0.98] transition-all disabled:opacity-50"
               >
@@ -101,7 +112,12 @@ export function ProposeSignerTab({
         </div>
 
         <div className="lg:col-span-5">
-          <SignerListCard api={api} myCommitment={myCommitment} />
+          <SignerListCard
+            api={api}
+            myCommitment={myCommitment}
+            refreshKey={refreshKey}
+            onRemove={handleProposeRemove}
+          />
         </div>
       </div>
     </>

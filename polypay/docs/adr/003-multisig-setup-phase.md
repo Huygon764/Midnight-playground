@@ -1,8 +1,8 @@
 # ADR-003: Why Multisig Requires a Three-Phase Setup
 
-**Date:** 2026-03-31
+**Date:** 2026-03-31 (updated 2026-04-17)
 **Status:** Accepted
-**Context:** Midnight Compact runtime 0.14.0, PolyPay contract with 12 impure circuits
+**Context:** Midnight Compact runtime 0.15.0, PolyPay contract (originally 12 impure circuits, now 9 after unifying propose variants)
 
 ## Problem
 
@@ -28,17 +28,17 @@ Why can't we do it in one step?
 
 Each impure circuit compiles to a proving key (~5MB) and verification key. All circuit keys must be included in the deploy transaction. The node rejects deploy transactions that exceed an undocumented size threshold.
 
-PolyPay already has **12 impure circuits** -- the practical maximum we could deploy:
+PolyPay now has **9 impure circuits** -- reduced from the original 12 by unifying the four propose circuits into one generic `propose(txType, d0, d1, d2, d3)`:
 
 | Category | Circuits |
 |----------|----------|
 | Setup | `constructor`, `initSigner`, `finalize` |
 | Token | `deposit` |
-| Propose | `proposeTransfer`, `proposeAddSigner`, `proposeRemoveSigner`, `proposeSetThreshold` |
+| Propose | `propose` (generic, txType selects variant) |
 | Approve | `approveTx` |
 | Execute | `executeTransfer`, `executeAddSigner`, `executeRemoveSigner`, `executeSetThreshold` |
 
-Adding a batch `initSigners(commitments[])` circuit would push past the limit. We already had to **remove the `withdraw` circuit** (see ADR-001) to fit within 12.
+Adding a batch `initSigners(commitments[])` circuit would push past the limit. We already had to **remove the `withdraw` circuit** (see ADR-001) and **collapse four propose circuits into one** to stay under ~12.
 
 ### 2. Compact does not support variable-length constructor parameters
 

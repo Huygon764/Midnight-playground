@@ -35,7 +35,19 @@ let cachedConnectedAPI: ConnectedAPI | undefined;
 let cachedUnshieldedAddress: Uint8Array | undefined;
 let cachedUnshieldedAddressBech32m: string | undefined;
 let cachedShieldedCoinPublicKey: string | undefined;
+let cachedShieldedAddress: string | undefined;
 let cachedIndexerUri: string | undefined;
+
+// Subscribers get notified as a submitted circuit progresses through stages
+// (proof gen → wallet interaction → network submit). "wallet" covers
+// unlock + balance + sign as one atomic step (SDK can't split them).
+type TxStage = "wallet" | "submitting";
+type TxStageListener = (stage: TxStage) => void;
+let txStageListener: TxStageListener | null = null;
+
+export const setTxStageListener = (fn: TxStageListener | null): void => {
+  txStageListener = fn;
+};
 
 export const getProviders = (): Promise<PolyPayProviders> => {
   return cachedProviders ?? (cachedProviders = initializeProviders());
@@ -54,6 +66,11 @@ export const getUnshieldedAddressBytes = (): Uint8Array => {
 export const getShieldedCoinPublicKey = (): string => {
   if (!cachedShieldedCoinPublicKey) throw new Error("Wallet not connected");
   return cachedShieldedCoinPublicKey;
+};
+
+export const getShieldedAddress = (): string => {
+  if (!cachedShieldedAddress) throw new Error("Wallet not connected");
+  return cachedShieldedAddress;
 };
 
 export const getUnshieldedAddress = (): string => {
@@ -94,6 +111,9 @@ const initializeProviders = async (): Promise<PolyPayProviders> => {
   const privateStateProvider = inMemoryPrivateStateProvider<string, PolyPayPrivateState>();
   const shieldedAddresses = await connectedAPI.getShieldedAddresses();
   cachedShieldedCoinPublicKey = shieldedAddresses.shieldedCoinPublicKey;
+  // Combined bech32m shielded address (cpk + encryption pk). Preferred for UI
+  // display — users paste and read these, not raw 32-byte cpk hex.
+  cachedShieldedAddress = (shieldedAddresses as { shieldedAddress?: string }).shieldedAddress;
 
   const { unshieldedAddress } = await connectedAPI.getUnshieldedAddress();
   cachedUnshieldedAddressBech32m = unshieldedAddress;
@@ -114,6 +134,10 @@ const initializeProviders = async (): Promise<PolyPayProviders> => {
         return shieldedAddresses.shieldedEncryptionPublicKey;
       },
       balanceTx: async (tx: UnboundTransaction): Promise<FinalizedTransaction> => {
+        // Wallet interaction starts — unlock (if locked), balance, then sign.
+        // All happen inside this single call; consumers can show a timed
+        // "wallet may be locked" hint if this stage doesn't progress quickly.
+        txStageListener?.("wallet");
         const serializedTx = toHex(tx.serialize());
         const received = await connectedAPI.balanceUnsealedTransaction(serializedTx);
         return Transaction.deserialize<SignatureEnabled, Proof, Binding>(
@@ -126,6 +150,7 @@ const initializeProviders = async (): Promise<PolyPayProviders> => {
     },
     midnightProvider: {
       submitTx: async (tx: FinalizedTransaction): Promise<TransactionId> => {
+        txStageListener?.("submitting");
         await connectedAPI.submitTransaction(toHex(tx.serialize()));
         return tx.identifiers()[0];
       },

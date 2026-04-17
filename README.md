@@ -6,7 +6,7 @@ A progressive collection of 5 example projects for learning **Compact smart cont
 
 | Project | Description | Components |
 |---------|-------------|------------|
-| [polypay](polypay/) | Private multisig wallet — signers identified by ZK commitments, anonymous approvals via nullifiers | Contract (15 circuits) + Token Contract + API + Web UI |
+| [polypay](polypay/) | Private multisig wallet — signers identified by ZK commitments, anonymous approvals via nullifiers, AES-GCM encrypted transfer proposals, shielded POLY token | Contract (9 circuits) + Token Contract + API + Web UI |
 
 ## Examples
 
@@ -79,6 +79,7 @@ Commitment tree root        Generated TypeScript API      User's secret key
 | Compact Runtime | 0.15.0 | 0.15.0 |
 | Proof Server | 8.0.3 | 8.0.3 |
 | Midnight JS SDK | 3.0.0 | 4.0.2 |
+| Ledger | v3 | v8 (shielded kernel ops) |
 | Network | Preprod | Preprod |
 
 ## Reference Repos

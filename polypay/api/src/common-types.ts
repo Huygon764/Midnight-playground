@@ -29,4 +29,5 @@ export type TransactionInfo = {
   readonly txType: bigint;
   readonly status: bigint;
   readonly approvals: bigint;
+  readonly d0: Uint8Array;
 };

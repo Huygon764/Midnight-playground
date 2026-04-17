@@ -59,3 +59,7 @@ Reduced from 13 to 12 impure circuits:
 - `executeAddSigner`
 - `executeRemoveSigner`
 - `executeSetThreshold`
+
+## Addendum (2026-04-17)
+
+Circuit count further reduced from 12 → 9 by unifying the four `propose*` circuits into a single generic `propose(txType, d0, d1, d2, d3)`. The `txType` parameter selects transfer / addSigner / removeSigner / setThreshold semantics; type-specific data is packed into `d0-d3` (`Bytes<32>` slots). Execute circuits still branch by type because their read/write patterns differ too much to unify under Midnight's `fields + reads ≤ 20` budget when a circuit uses `sendShielded`.

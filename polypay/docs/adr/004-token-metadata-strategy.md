@@ -1,76 +1,51 @@
-# ADR-004: Token Metadata Strategy -- On-Chain vs Off-Chain
+# ADR-004: Token Metadata Strategy -- No Standard Exists on Midnight
 
-**Date:** 2026-03-31
-**Status:** Accepted (temporary, will migrate to off-chain)
-**Context:** Midnight Token Metadata Specification, PolyPay token contract
+**Date:** 2026-03-31 (superseded 2026-04-17)
+**Status:** Superseded — initial plan (on-chain metadata) was dropped after finding Midnight has no metadata standard at all
+**Context:** Midnight ledger-v8 8.0.3, dapp-connector-api 4.0.1, Lace wallet
 
 ## Problem
 
-Token metadata (name, symbol, description, image) needs to be stored and displayed. Two approaches are available on Midnight.
+Custom shielded tokens should display a name/symbol in the user's wallet. PolyPay's vault token should appear as "POLY" or similar, not as an unnamed hash.
 
-## Options
+## Original decision (2026-03-31) — dropped
 
-### Option A: On-chain (current implementation)
+The original ADR proposed storing `tokenName` and `tokenSymbol` as `Opaque<"string">` fields in the token contract ledger, set via constructor. Plan was to migrate to an off-chain Midnight metadata server once infrastructure was available.
 
-Store `tokenName` and `tokenSymbol` as `Opaque<"string">` in the token contract ledger. Set during constructor.
+## Actual state (2026-04-17)
 
-**Pros:**
-- Simple, self-contained
-- No external infrastructure needed
-- Works for testing/demo
+After implementing the shielded token flow with `mintShieldedToken`, we investigated how Lace displays token names and found:
 
-**Cons:**
-- Contract doesn't use name/symbol in any logic -- purely metadata bloat
-- Adds constructor parameters and ledger fields that serve no on-chain purpose
-- Lace wallet and other DApps won't read metadata from contract ledger -- they use the metadata server
-- Immutable after deploy (can't update name without redeploying)
-
-### Option B: Off-chain metadata server (Midnight standard)
-
-Submit a JSON metadata file to the Midnight metadata repository. DApps and wallets query via GraphQL API.
-
-```json
-{
-  "type": "token",
-  "subject": "<token-color-hex>",
-  "contract_address": "<contract-address-hex>",
-  "domain_separator": "polypay:token:",
-  "shielded": false,
-  "ticker": "POLY",
-  "name": "PolyPay Token",
-  "version": 1,
-  "signatures": [{ "signature": "...", "public_key": "..." }],
-  "decimals": 0
-}
-```
-
-**Pros:**
-- Follows Midnight ecosystem standard
-- Lace wallet will display correct name/ticker/image
-- Can update metadata without redeploying contract
-- Contract stays minimal -- only logic, no metadata
-
-**Cons:**
-- Requires metadata server infrastructure (or access to Midnight's official server)
-- Need to sign metadata with Schnorr/secp256k1
-- More complex submission process (canonicalize JSON, sign, submit to repo)
+1. **No on-chain metadata standard exists on Midnight.** `ShieldedTokenType` is identified by a 32-byte `RawTokenType` hash derived from `rawTokenType(domain_separator, contract_address)`. There are no `name`/`symbol`/`decimals`/`metadata` fields anywhere in:
+   - `@midnight-ntwrk/ledger-v8` types
+   - `@midnight-ntwrk/compact-runtime`
+   - `@midnight-ntwrk/dapp-connector-api`
+2. **Lace wallet hardcodes an allowlist.** Only NIGHT and tDUST have display names. Every other shielded token falls back to `"Shielded unnamed token (<prefix…suffix>)"`. Lace does not read from any registry at runtime.
+3. **No token-list registry exists.** An [official forum thread](https://forum.midnight.network/t/will-there-be-standard-token-naming-conventions-on-midnight/1045) asking about this is open with zero team replies.
+4. **Compact stdlib offers no metadata primitive.** `mintShieldedToken(domain, amount, nonce, recipient)` takes a 32-byte `domain` used as hash pre-image; it cannot carry a display string and the domain is not recoverable from the resulting `tokenColor`.
 
 ## Decision
 
-**Current (testing phase):** Keep name/symbol on-chain for convenience. The contract constructor takes `name` and `symbol` parameters. This works for testing without needing external infrastructure.
+Do nothing on-chain. Display the token name (`POLY`) inside the PolyPay dApp UI only. Lace will always show "Shielded unnamed token (...)" for custom shielded tokens until Midnight ships a metadata standard.
 
-**Future (production):** Migrate to off-chain metadata:
-1. Remove `tokenName`/`tokenSymbol` from contract -- constructor takes no args
-2. After deploy, generate metadata JSON with contract address + token color
-3. Sign and submit to Midnight metadata repository
-4. UI reads metadata from GraphQL API instead of contract state
+- `token.compact` contains no `tokenName` / `tokenSymbol` fields
+- Constructor takes no metadata arguments
+- The dApp's UI hardcodes `POLY` as the display label for vault POLY tokens
 
-## Migration checklist (when ready)
+## Why not implement a local registry?
 
-- [ ] Remove `tokenName`/`tokenSymbol` from `token.compact`
-- [ ] Update constructor to take no parameters
-- [ ] Create metadata JSON generator script
-- [ ] Implement Schnorr signing for metadata
-- [ ] Submit to metadata server
-- [ ] Update UI to query metadata server via GraphQL
-- [ ] Determine official metadata server endpoint for testnet/mainnet (ask Midnight team)
+Options we considered and rejected:
+
+- **Bundle a token-list in the dApp**: keeps the name correct inside PolyPay but doesn't help users who check Lace. Also requires us to re-deploy dApp to update.
+
+## Consequences
+
+- Users see "POLY" in PolyPay and "Shielded unnamed token (...)" in Lace. Acceptable for hackathon; confusing for production.
+- When Midnight ships a token metadata standard (forum thread, NMKR community, or otherwise), PolyPay should adopt it and re-visit this ADR.
+- If the dApp ever supports multiple custom tokens, the hardcoded `POLY` label needs to become configurable per-token.
+
+## References
+
+- Forum: [Will there be standard token naming conventions on Midnight?](https://forum.midnight.network/t/will-there-be-standard-token-naming-conventions-on-midnight/1045)
+- [Lace wallet | Midnight Docs](https://docs.midnight.network/develop/how-to/lace-wallet)
+- Local: `@midnight-ntwrk/ledger-v8/ledger-v8.d.ts` (`ShieldedTokenType` definition, lines 39–62)

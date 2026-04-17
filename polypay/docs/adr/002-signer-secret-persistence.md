@@ -57,18 +57,16 @@ Even though the signature is non-deterministic, using `signData` instead of `cry
 - Future improvement: export/import secret functionality (already shown in UI via IdentityCard)
 - If Midnight adds a `deriveAppKey(appId)` method to the connector API in the future, this decision should be revisited
 
-## Addendum: Unified Secret Across Contracts (2026-04-01)
+## Addendum: Unified Secret Across Contracts (2026-04-01, revised 2026-04-17)
 
-The same 32-byte secret is used for both the polypay and token contracts. Both contracts define `deriveCommitment(secret)` using `persistentHash`, but with different domain separators:
+The same 32-byte secret is used for both the polypay and token contracts. Both contracts define `deriveCommitment(secret)` using `persistentHash`.
 
-- polypay.compact: `hash("polypay:pk:" + secret)`
-- token.compact: `hash("token:pk:" + secret)`
+**Current state (2026-04-17):** both contracts use the **same domain separator** `"polypay:pk:"`. This means `deriveCommitment(secret)` produces the **same 32-byte commitment** on both chains — a signer's commitment on the token contract is identical to their commitment on the multisig. An on-chain observer can link actions across the two contracts by matching commitment values.
 
-The domain separators ensure commitments differ between contracts, so on-chain observers cannot link them by comparing commitment values.
+This is an accepted trade-off for the hackathon scope:
 
-However, the **same secret is loaded into both private state providers** at wallet connection time (App.tsx). This means:
+- Signer commitments aren't themselves linked to any wallet identity (the secret is browser-local, derived from `signData` output)
+- The privacy gain from cross-contract separation is marginal — observers can often correlate actions via timing/amounts anyway
+- Splitting into contract-specific commitments adds code without meaningful privacy benefit at this scale
 
-- If a future contract reuses the `"polypay:pk:"` domain separator, commitments would collide, creating cross-contract identity linkage
-- The secret itself is never disclosed on-chain, so the shared usage is only a risk if a witness bug leaks it
-
-This is acceptable for the current two-contract architecture. If PolyPay adds more contracts, each should use a unique domain separator prefix, or derive contract-specific secrets from the master secret.
+**Future improvement:** if PolyPay adds more contracts or moves to production, use distinct domain separators per contract (e.g. `"polypay:multisig:pk:"` vs `"polypay:token:pk:"`) so commitments differ. This is a one-line change in each `deriveCommitment` circuit + re-deploy.

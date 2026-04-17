@@ -14,8 +14,6 @@ import * as crypto from "./crypto.js";
 import { deployContract, findDeployedContract } from "@midnight-ntwrk/midnight-js-contracts";
 import { map, type Observable } from "rxjs";
 import { type PolyPayPrivateState, createPolyPayPrivateState } from "../../contract/src/index.js";
-import { persistentHash, CompactTypeVector, CompactTypeBytes } from "@midnight-ntwrk/compact-runtime";
-
 // Convert bigint to 32-byte little-endian. Matches Compact's `x as Field as Bytes<32>`
 // which uses compact-runtime's `convertFieldToBytes` (LSB at index 0, MSB at index 31).
 function bigintToBytes32LE(value: bigint): Uint8Array {
@@ -29,12 +27,6 @@ function bigintToBytes32LE(value: bigint): Uint8Array {
   return bytes;
 }
 
-// Compute proposal hash matching Compact: persistentHash<Vector<2, Bytes<32>>>([cpk, amountBytes])
-const proposalHashType = new CompactTypeVector(2, new CompactTypeBytes(32));
-function computeProposalHash(recipientCpk: Uint8Array, amount: bigint): Uint8Array {
-  return persistentHash(proposalHashType, [recipientCpk, bigintToBytes32LE(amount)]);
-}
-
 export interface DeployedPolyPayAPI {
   readonly deployedContractAddress: ContractAddress;
   readonly state$: Observable<PolyPayDerivedState>;
@@ -46,9 +38,11 @@ export interface DeployedPolyPayAPI {
   // Deposit shielded tNIGHT
   deposit: (coin: { nonce: Uint8Array; color: Uint8Array; value: bigint }) => Promise<void>;
 
-  // Propose (transfer is encrypted)
+  // Propose (transfer is encrypted). Stores both coin + encryption public keys
+  // so the full shielded address can be rebuilt when decrypting for display.
   proposeTransfer: (
     recipientCpk: Uint8Array,
+    recipientEpk: Uint8Array,
     amount: bigint,
     vaultKey: CryptoKey,
   ) => Promise<void>;
@@ -75,7 +69,7 @@ export interface DeployedPolyPayAPI {
   getSignerList: () => Promise<Uint8Array[]>;
   getEncryptedTransferData: (
     txId: bigint,
-  ) => Promise<{ enc0: Uint8Array; enc1: Uint8Array; enc2: Uint8Array } | null>;
+  ) => Promise<{ enc0: Uint8Array; enc1: Uint8Array; enc2: Uint8Array; enc3: Uint8Array } | null>;
   getVaultCoins: () => Promise<{ key: Uint8Array; value: bigint }[]>;
 }
 
@@ -138,16 +132,22 @@ export class PolyPayAPI implements DeployedPolyPayAPI {
     await this.deployedContract.callTx.deposit(coin);
   }
 
-  // Propose — generic circuit, type-specific data in d0-d3
+  // Propose — generic circuit, type-specific data in d0-d3.
+  // For Transfer: d0-d3 are 4 x 32-byte ciphertext chunks (cpk + epk + amount).
   async proposeTransfer(
     recipientCpk: Uint8Array,
+    recipientEpk: Uint8Array,
     amount: bigint,
     vaultKey: CryptoKey,
   ): Promise<void> {
     this.logger?.info("proposeTransfer");
-    const dataHash = computeProposalHash(recipientCpk, amount);
-    const { enc0, enc1, enc2 } = await crypto.encryptProposalData(vaultKey, recipientCpk, amount);
-    await this.deployedContract.callTx.propose(0n, dataHash, enc0, enc1, enc2);
+    const { enc0, enc1, enc2, enc3 } = await crypto.encryptProposalData(
+      vaultKey,
+      recipientCpk,
+      recipientEpk,
+      amount,
+    );
+    await this.deployedContract.callTx.propose(0n, enc0, enc1, enc2, enc3);
   }
 
   async proposeAddSigner(commitment: Uint8Array): Promise<void> {
@@ -165,9 +165,12 @@ export class PolyPayAPI implements DeployedPolyPayAPI {
   async proposeSetThreshold(newThreshold: bigint): Promise<void> {
     this.logger?.info("proposeSetThreshold");
     const empty = new Uint8Array(32);
-    // Pack threshold as Bytes<32> (first byte)
+    // Pack threshold as Bytes<32> little-endian (LSB at byte 0). The circuit
+    // reads `d0 as Field as Uint<8>`; Midnight Field decodes bytes LE so the
+    // threshold byte MUST be at index 0 — putting it at byte 31 produces a
+    // value around 2^248 which overflows Uint<8>.
     const d0 = new Uint8Array(32);
-    d0[31] = Number(newThreshold); // little-endian field representation
+    d0[0] = Number(newThreshold);
     await this.deployedContract.callTx.propose(4n, d0, empty, empty, empty);
   }
 
@@ -239,6 +242,7 @@ export class PolyPayAPI implements DeployedPolyPayAPI {
           txType: l.txTypes.lookup(i),
           status: l.txStatuses.member(i) ? l.txStatuses.lookup(i) : 0n,
           approvals: l.txApprovalCounts.member(i) ? l.txApprovalCounts.lookup(i).read() : 0n,
+          d0: l.txData0.member(i) ? l.txData0.lookup(i) : new Uint8Array(32),
         });
       }
     }
@@ -260,17 +264,18 @@ export class PolyPayAPI implements DeployedPolyPayAPI {
 
   async getEncryptedTransferData(
     txId: bigint,
-  ): Promise<{ enc0: Uint8Array; enc1: Uint8Array; enc2: Uint8Array } | null> {
+  ): Promise<{ enc0: Uint8Array; enc1: Uint8Array; enc2: Uint8Array; enc3: Uint8Array } | null> {
     const contractState = await this.providers.publicDataProvider.queryContractState(
       this.deployedContractAddress,
     );
     if (!contractState) return null;
     const l = PolyPay.ledger(contractState.data);
-    if (!l.txData1.member(txId)) return null;
+    if (!l.txData0.member(txId)) return null;
     return {
-      enc0: l.txData1.lookup(txId),
-      enc1: l.txData2.lookup(txId),
-      enc2: l.txData3.lookup(txId),
+      enc0: l.txData0.lookup(txId),
+      enc1: l.txData1.lookup(txId),
+      enc2: l.txData2.lookup(txId),
+      enc3: l.txData3.lookup(txId),
     };
   }
 

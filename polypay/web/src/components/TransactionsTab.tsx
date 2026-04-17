@@ -5,17 +5,35 @@ import type { DoAction } from "../types.js";
 import { TX_TYPE_LABELS, TX_TYPE_ICONS } from "../types.js";
 import { truncateHex } from "../utils.js";
 import { toHex } from "@midnight-ntwrk/midnight-js-utils";
-import { Icon } from "./ui.js";
+import {
+  MidnightBech32m,
+  ShieldedAddress,
+  ShieldedCoinPublicKey,
+  ShieldedEncryptionPublicKey,
+} from "@midnight-ntwrk/wallet-sdk-address-format";
+import { Icon, showToast } from "./ui.js";
 
-type DecryptedTransfer = { recipientCpk: string; amount: string };
+const NETWORK_ID = (import.meta.env.VITE_NETWORK_ID ?? "preprod") as string;
+
+function rebuildShieldedAddress(cpk: Uint8Array, epk: Uint8Array): string {
+  const addr = new ShieldedAddress(
+    new ShieldedCoinPublicKey(Buffer.from(cpk)),
+    new ShieldedEncryptionPublicKey(Buffer.from(epk)),
+  );
+  return MidnightBech32m.encode(NETWORK_ID as any, addr).toString();
+}
+
+type DecryptedTransfer = { recipientAddress: string; recipientCpk: string; amount: string };
 
 export function TransactionsTab({
   api,
   vaultKey,
+  threshold,
   doAction,
 }: {
   api: DeployedPolyPayAPI;
   vaultKey: CryptoKey | null;
+  threshold: bigint;
   doAction: DoAction;
 }) {
   const [txList, setTxList] = useState<TransactionInfo[]>([]);
@@ -41,8 +59,10 @@ export function TransactionsTab({
                   encData.enc0,
                   encData.enc1,
                   encData.enc2,
+                  encData.enc3,
                 );
                 dec[tx.txId.toString()] = {
+                  recipientAddress: rebuildShieldedAddress(result.recipientCpk, result.recipientEpk),
                   recipientCpk: toHex(result.recipientCpk),
                   amount: result.amount.toString(),
                 };
@@ -167,23 +187,52 @@ export function TransactionsTab({
                         {typeStr === "0" && dec ? (
                           <div className="text-xs space-y-1">
                             <div className="text-on-surface-variant">
-                              To: <span className="text-secondary">{truncateHex(dec.recipientCpk)}</span>
+                              To:{" "}
+                              <button
+                                onClick={() => {
+                                  navigator.clipboard.writeText(dec.recipientAddress);
+                                  showToast("Recipient address copied", "success");
+                                }}
+                                className="text-secondary hover:text-primary transition-colors cursor-pointer break-all"
+                                title="Click to copy full address"
+                              >
+                                {truncateHex(dec.recipientAddress)}
+                              </button>
                             </div>
                             <div className="text-on-surface-variant">
-                              Amount: <span className="text-on-surface font-bold">{dec.amount} tNIGHT</span>
+                              Amount: <span className="text-on-surface font-bold">{dec.amount} POLY</span>
                             </div>
                           </div>
                         ) : typeStr === "0" ? (
                           <span className="text-xs text-outline italic flex items-center gap-1">
                             <Icon name="lock" className="text-sm" /> Encrypted
                           </span>
+                        ) : typeStr === "2" || typeStr === "3" ? (
+                          <div className="text-xs text-on-surface-variant">
+                            Commitment:{" "}
+                            <button
+                              onClick={() => {
+                                const hex = toHex(tx.d0);
+                                navigator.clipboard.writeText(hex);
+                                showToast("Commitment copied", "success");
+                              }}
+                              className="text-secondary hover:text-primary transition-colors cursor-pointer"
+                              title="Click to copy"
+                            >
+                              {truncateHex(toHex(tx.d0))}
+                            </button>
+                          </div>
+                        ) : typeStr === "4" ? (
+                          <div className="text-xs text-on-surface-variant">
+                            New threshold: <span className="text-on-surface font-bold">{tx.d0[0]}</span>
+                          </div>
                         ) : (
                           <span className="text-xs text-outline">--</span>
                         )}
                       </td>
                       <td className="px-8 py-5">
                         <span className="text-sm font-label font-bold text-on-surface">
-                          {tx.approvals.toString()}
+                          {tx.approvals.toString()}/{threshold.toString()}
                         </span>
                       </td>
                       <td className="px-8 py-5">

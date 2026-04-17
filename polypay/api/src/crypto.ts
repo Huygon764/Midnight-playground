@@ -1,13 +1,15 @@
 // AES-256-GCM encryption for proposal data.
 // vaultKey MUST NEVER be stored on-chain.
 //
-// Encrypted layout (3 x Bytes<32> = 96 bytes):
+// Encrypted layout (4 x Bytes<32> = 128 bytes, stored in txData0-3):
 //   enc0: iv(12) + ciphertext[0:20]
 //   enc1: ciphertext[20:52]
-//   enc2: ciphertext[52:64] + zero-padding(20)
+//   enc2: ciphertext[52:84]
+//   enc3: ciphertext[84:96] + zero-padding(20)
 //
-// Plaintext (48 bytes): recipientCpk(32) + amount(16 big-endian)
-// Ciphertext: 48 + 16 GCM tag = 64 bytes. With IV: 76 bytes total.
+// Plaintext (80 bytes): recipientCpk(32) + recipientEpk(32) + amount(16 big-endian)
+// Ciphertext: 80 + 16 GCM tag = 96 bytes. With IV: 108 bytes total.
+// Both keys are stored so we can rebuild the full mn_shield-addr_... for display.
 
 const ALGO = "AES-GCM";
 const KEY_LEN = 256;
@@ -33,26 +35,30 @@ export async function importVaultKey(hex: string): Promise<CryptoKey> {
 export async function encryptProposalData(
   vaultKey: CryptoKey,
   recipientCpk: Uint8Array,
+  recipientEpk: Uint8Array,
   amount: bigint,
-): Promise<{ enc0: Uint8Array; enc1: Uint8Array; enc2: Uint8Array }> {
-  const plaintext = new Uint8Array(48);
+): Promise<{ enc0: Uint8Array; enc1: Uint8Array; enc2: Uint8Array; enc3: Uint8Array }> {
+  const plaintext = new Uint8Array(80);
   plaintext.set(recipientCpk, 0);
-  plaintext.set(bigintToBytes16BE(amount), 32);
+  plaintext.set(recipientEpk, 32);
+  plaintext.set(bigintToBytes16BE(amount), 64);
 
   const iv = crypto.getRandomValues(new Uint8Array(IV_LEN));
   const ct = new Uint8Array(await crypto.subtle.encrypt({ name: ALGO, iv }, vaultKey, plaintext.buffer as ArrayBuffer));
-  // ct = 64 bytes (48 data + 16 GCM tag)
+  // ct = 96 bytes (80 data + 16 GCM tag)
 
   const enc0 = new Uint8Array(32);
   const enc1 = new Uint8Array(32);
   const enc2 = new Uint8Array(32);
+  const enc3 = new Uint8Array(32);
 
   enc0.set(iv, 0); // [0:12]
   enc0.set(ct.subarray(0, 20), 12); // [12:32]
   enc1.set(ct.subarray(20, 52)); // [0:32]
-  enc2.set(ct.subarray(52, 64)); // [0:12], rest is zero-padding
+  enc2.set(ct.subarray(52, 84)); // [0:32]
+  enc3.set(ct.subarray(84, 96)); // [0:12], rest is zero-padding
 
-  return { enc0, enc1, enc2 };
+  return { enc0, enc1, enc2, enc3 };
 }
 
 export async function decryptProposalData(
@@ -60,12 +66,14 @@ export async function decryptProposalData(
   enc0: Uint8Array,
   enc1: Uint8Array,
   enc2: Uint8Array,
-): Promise<{ recipientCpk: Uint8Array; amount: bigint }> {
+  enc3: Uint8Array,
+): Promise<{ recipientCpk: Uint8Array; recipientEpk: Uint8Array; amount: bigint }> {
   const iv = enc0.subarray(0, 12);
-  const ct = new Uint8Array(64);
+  const ct = new Uint8Array(96);
   ct.set(enc0.subarray(12, 32), 0);
   ct.set(enc1, 20);
-  ct.set(enc2.subarray(0, 12), 52);
+  ct.set(enc2, 52);
+  ct.set(enc3.subarray(0, 12), 84);
 
   const plaintext = new Uint8Array(
     // @ts-expect-error TS5.9 ArrayBufferLike strictness
@@ -74,7 +82,8 @@ export async function decryptProposalData(
 
   return {
     recipientCpk: new Uint8Array(plaintext.subarray(0, 32)),
-    amount: bytes16BEToBigint(plaintext.subarray(32, 48)),
+    recipientEpk: new Uint8Array(plaintext.subarray(32, 64)),
+    amount: bytes16BEToBigint(plaintext.subarray(64, 80)),
   };
 }
 

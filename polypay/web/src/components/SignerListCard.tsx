@@ -2,14 +2,18 @@ import { useState, useEffect, useCallback } from "react";
 import type { DeployedPolyPayAPI } from "../../../api/src/index.js";
 import { toHex } from "@midnight-ntwrk/midnight-js-utils";
 import { truncateHex } from "../utils.js";
-import { CopyButton } from "./ui.js";
+import { CopyButton, Icon } from "./ui.js";
 
 export function SignerListCard({
   api,
   myCommitment,
+  refreshKey = 0,
+  onRemove,
 }: {
   api: DeployedPolyPayAPI;
   myCommitment: string;
+  refreshKey?: number;
+  onRemove?: (commitmentHex: string) => void;
 }) {
   const [signers, setSigners] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
@@ -28,7 +32,7 @@ export function SignerListCard({
 
   useEffect(() => {
     refresh();
-  }, [refresh]);
+  }, [refresh, refreshKey]);
 
   return (
     <div className="bg-surface-container-low rounded-2xl p-6 space-y-4">
@@ -65,7 +69,18 @@ export function SignerListCard({
                   </span>
                 )}
               </div>
-              <CopyButton text={s} />
+              <div className="flex items-center gap-1">
+                <CopyButton text={s} />
+                {onRemove && (
+                  <button
+                    onClick={() => onRemove(s)}
+                    title="Propose remove"
+                    className="text-error/70 hover:text-error transition-colors p-1"
+                  >
+                    <Icon name="delete" className="text-sm" />
+                  </button>
+                )}
+              </div>
             </div>
           );
         })}

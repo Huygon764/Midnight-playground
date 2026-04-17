@@ -8,9 +8,8 @@ import {
   crypto as polyCrypto,
 } from "../../api/src/index.js";
 import { PolyPay, createPolyPayPrivateState, createTokenPrivateState } from "../../contract/src/index.js";
-import { getProviders, getConnectedAPI, getUnshieldedAddress, getShieldedCoinPublicKey } from "./providers.js";
+import { getProviders, getConnectedAPI, getUnshieldedAddress, getShieldedAddress, setTxStageListener } from "./providers.js";
 import { toHex } from "@midnight-ntwrk/midnight-js-utils";
-import { MidnightBech32m, ShieldedCoinPublicKey } from "@midnight-ntwrk/wallet-sdk-address-format";
 
 import type { Mode, Phase, WalletTab } from "./types.js";
 import {
@@ -25,7 +24,7 @@ import {
   truncateHex,
   deriveSecretFromSignature,
 } from "./utils.js";
-import { Icon, CopyButton, Spinner, StatusMessage } from "./components/ui.js";
+import { Icon, CopyButton, Spinner, showToast, type TxStage } from "./components/ui.js";
 import { Sidebar } from "./components/Sidebar.js";
 import { PageHeader } from "./components/PageHeader.js";
 import { IdentityCard } from "./components/IdentityCard.js";
@@ -43,13 +42,13 @@ export default function App() {
   const [error, setError] = useState("");
   const [isWorking, setIsWorking] = useState(false);
   const [workingMsg, setWorkingMsg] = useState("");
-  const [txStatus, setTxStatus] = useState("");
+  const [txStage, setTxStage] = useState<TxStage>("idle");
 
   // Identity
   const [mySecret, setMySecret] = useState("");
   const [myCommitment, setMyCommitment] = useState("");
   const [myAddress, setMyAddress] = useState("");
-  const [myShieldedCpk, setMyShieldedCpk] = useState("");
+  const [myShieldedAddress, setMyShieldedAddress] = useState("");
 
   // Wallet state
   const [api, setApi] = useState<DeployedPolyPayAPI | null>(null);
@@ -59,6 +58,7 @@ export default function App() {
   const [threshold, setThreshold] = useState("2");
   const [joinAddr, setJoinAddr] = useState("");
   const [signerCommitment, setSignerCommitment] = useState("");
+  const [signersRefreshKey, setSignersRefreshKey] = useState(0);
 
   // Token state
   const [tokenApi, setTokenApi] = useState<DeployedTokenAPI | null>(null);
@@ -67,6 +67,7 @@ export default function App() {
 
   // Vault key for encrypted proposals
   const [vaultKey, setVaultKey] = useState<CryptoKey | null>(null);
+  const [vaultKeyHex, setVaultKeyHex] = useState<string | null>(null);
   const [vaultKeyInput, setVaultKeyInput] = useState("");
   const [tokenColorInput, setTokenColorInput] = useState("");
 
@@ -79,6 +80,37 @@ export default function App() {
     });
     return () => sub.unsubscribe();
   }, [api]);
+
+  // Track tx lifecycle stages (balance = wallet sign, submit = network send)
+  // so the spinner reflects actual progress instead of a generic "working".
+  useEffect(() => {
+    let unlockHintTimer: ReturnType<typeof setTimeout> | null = null;
+    const clearHintTimer = () => {
+      if (unlockHintTimer) {
+        clearTimeout(unlockHintTimer);
+        unlockHintTimer = null;
+      }
+    };
+    setTxStageListener((stage) => {
+      clearHintTimer();
+      if (stage === "wallet") {
+        setWorkingMsg("Waiting for wallet...");
+        setTxStage("wallet");
+        // If wallet is locked, balanceTx hangs silently. After 5s of no
+        // progress, nudge the user toward their extension.
+        unlockHintTimer = setTimeout(() => {
+          setWorkingMsg("Wallet may be locked — open your Lace extension to unlock");
+        }, 5000);
+      } else if (stage === "submitting") {
+        setWorkingMsg("Submitting to chain...");
+        setTxStage("submitting");
+      }
+    });
+    return () => {
+      clearHintTimer();
+      setTxStageListener(null);
+    };
+  }, []);
 
   // Restore secret from localStorage on load
   useEffect(() => {
@@ -94,7 +126,10 @@ export default function App() {
   useEffect(() => {
     const savedKeyHex = loadVaultKey();
     if (savedKeyHex) {
-      polyCrypto.importVaultKey(savedKeyHex).then(setVaultKey).catch(console.error);
+      polyCrypto.importVaultKey(savedKeyHex).then((k) => {
+        setVaultKey(k);
+        setVaultKeyHex(savedKeyHex);
+      }).catch(console.error);
     }
   }, []);
 
@@ -134,22 +169,15 @@ export default function App() {
 
       setMyAddress(getUnshieldedAddress());
 
-      // Decode shielded coin public key to raw hex
+      // Full bech32m shielded address — used for UI display and input autofill
       try {
-        const cpkBech32m = getShieldedCoinPublicKey();
-        const networkId = (import.meta.env.VITE_NETWORK_ID ?? "preprod") as string;
-        const decoded = ShieldedCoinPublicKey.codec.decode(networkId as any, MidnightBech32m.parse(cpkBech32m));
-        setMyShieldedCpk(toHex(new Uint8Array(decoded.data)));
+        setMyShieldedAddress(getShieldedAddress());
       } catch (e) {
-        console.warn("Failed to decode shielded coin PK:", e);
-        // Fallback: try to use bech32m directly, let user copy manually
-        try {
-          setMyShieldedCpk(getShieldedCoinPublicKey());
-        } catch {}
+        console.warn("Failed to get shielded address:", e);
       }
 
-      // Restore token contract
-      const savedTokenAddr = loadVaultKey() ? localStorage.getItem("polypay:token-contract") : null;
+      // Restore token contract (independent of multisig vault key)
+      const savedTokenAddr = localStorage.getItem("polypay:token-contract");
       if (savedTokenAddr) {
         try {
           const tApi = await TokenAPI.join(providers as any, savedTokenAddr);
@@ -181,22 +209,58 @@ export default function App() {
     }
   }, [restoreOrDeriveSecret]);
 
+  // Auto-connect if we have a saved session (secret in localStorage).
+  // Runs once on mount; guards against StrictMode double-fire via phase check.
+  useEffect(() => {
+    if (phase === "connect" && loadSecret()) {
+      connectWallet();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // ─── Wallet Actions ─────────────────────────────────────────────────
 
   const deployToken = useCallback(async () => {
     setIsWorking(true);
     setWorkingMsg("Deploying shielded token contract...");
-    setTxStatus("");
+    setTxStage("proving");
     try {
       const providers = await getProviders();
       const tApi = await TokenAPI.deploy(providers as any);
       setTokenApi(tApi);
       setTokenAddress(tApi.deployedContractAddress);
       localStorage.setItem("polypay:token-contract", tApi.deployedContractAddress);
-      setTxStatus("Token contract deployed. Mint tokens to get shielded coins.");
+      showToast("Token contract deployed", "success");
     } catch (e) {
       console.error("Deploy token failed:", e);
-      setTxStatus(`Deploy token failed: ${formatError(e)}`);
+      showToast(`Deploy token failed: ${formatError(e)}`, "error");
+    } finally {
+      setIsWorking(false);
+      setWorkingMsg("");
+      setTxStage("idle");
+    }
+  }, []);
+
+  const joinToken = useCallback(async (address: string) => {
+    if (!address) return;
+    setIsWorking(true);
+    setWorkingMsg("Reconnecting to token contract...");
+    try {
+      const providers = await getProviders();
+      const tApi = await TokenAPI.join(providers as any, address);
+      setTokenApi(tApi);
+      setTokenAddress(tApi.deployedContractAddress);
+      localStorage.setItem("polypay:token-contract", tApi.deployedContractAddress);
+      const color = await tApi.getTokenColor();
+      const colorHex = toHex(color);
+      if (colorHex !== "0".repeat(64)) {
+        setTokenColor(colorHex);
+        setTokenColorInput(colorHex);
+      }
+      showToast("Token contract reconnected", "success");
+    } catch (e) {
+      console.error("Join token failed:", e);
+      showToast(`Join token failed: ${formatError(e)}`, "error");
     } finally {
       setIsWorking(false);
       setWorkingMsg("");
@@ -207,7 +271,7 @@ export default function App() {
     if (!tokenApi) return;
     setIsWorking(true);
     setWorkingMsg("Minting shielded tokens...");
-    setTxStatus("");
+    setTxStage("proving");
     try {
       await tokenApi.mint(amount, recipientPk);
       // Refresh token color
@@ -217,13 +281,14 @@ export default function App() {
         setTokenColor(colorHex);
         setTokenColorInput(colorHex);
       }
-      setTxStatus(`Minted ${amount} shielded tokens`);
+      showToast(`Minted ${amount} shielded tokens`, "success");
     } catch (e) {
       console.error("Mint failed:", e);
-      setTxStatus(`Mint failed: ${formatError(e)}`);
+      showToast(`Mint failed: ${formatError(e)}`, "error");
     } finally {
       setIsWorking(false);
       setWorkingMsg("");
+      setTxStage("idle");
     }
   }, [tokenApi]);
 
@@ -231,7 +296,7 @@ export default function App() {
     if (!tokenColorInput) return;
     setIsWorking(true);
     setWorkingMsg("Deploying PolyPay contract...");
-    setTxStatus("");
+    setTxStage("proving");
     try {
       const providers = await getProviders();
       const payApi = await PolyPayAPI.deploy(providers, BigInt(threshold), hexToBytes(tokenColorInput));
@@ -240,53 +305,69 @@ export default function App() {
       const key = await polyCrypto.generateVaultKey();
       const keyHex = await polyCrypto.exportVaultKey(key);
       setVaultKey(key);
+      setVaultKeyHex(keyHex);
       saveVaultKey(keyHex);
 
       setApi(payApi);
       setContractAddress(payApi.deployedContractAddress);
       saveContractAddress(payApi.deployedContractAddress);
-      setTxStatus(`Deployed. Vault Key: ${keyHex} (share with signers!)`);
+      // Vault key must be shared with co-signers — log so user can copy from console
+      console.log("[polypay] Vault Key (share with signers):", keyHex);
+      showToast("Contract deployed. Vault key logged to console — share with signers.", "success");
       setPhase("init-signers");
     } catch (e) {
       console.error("Deploy failed:", e);
-      setTxStatus(`Deploy failed: ${formatError(e)}`);
+      showToast(`Deploy failed: ${formatError(e)}`, "error");
     } finally {
       setIsWorking(false);
       setWorkingMsg("");
+      setTxStage("idle");
     }
   }, [threshold, tokenColorInput]);
 
   const joinContract = useCallback(async () => {
     if (!joinAddr.trim()) return;
+    if (!myCommitment) {
+      showToast("Wallet not connected", "error");
+      return;
+    }
     setIsWorking(true);
     setWorkingMsg("Joining contract...");
-    setTxStatus("");
     try {
       const providers = await getProviders();
       const payApi = await PolyPayAPI.join(providers, joinAddr.trim());
+      // Only registered signers may join. Checks the on-chain signer set.
+      const signerList = await payApi.getSignerList();
+      const isSigner = signerList.some((s) => toHex(s) === myCommitment);
+      if (!isSigner) {
+        throw new Error("You are not a signer of this contract. Ask the deployer to add your commitment first.");
+      }
       setApi(payApi);
       setContractAddress(payApi.deployedContractAddress);
       saveContractAddress(payApi.deployedContractAddress);
       setPhase("dashboard");
+      showToast("Joined contract", "success");
     } catch (e) {
       console.error("Join failed:", e);
-      setTxStatus(`Join failed: ${formatError(e)}`);
+      showToast(`Join failed: ${formatError(e)}`, "error");
     } finally {
       setIsWorking(false);
       setWorkingMsg("");
     }
-  }, [joinAddr]);
+  }, [joinAddr, myCommitment]);
 
   const importVaultKeyAction = useCallback(async () => {
     if (!vaultKeyInput.trim()) return;
     try {
-      const key = await polyCrypto.importVaultKey(vaultKeyInput.trim());
+      const trimmed = vaultKeyInput.trim();
+      const key = await polyCrypto.importVaultKey(trimmed);
       setVaultKey(key);
-      saveVaultKey(vaultKeyInput.trim());
-      setTxStatus("Vault key imported");
+      setVaultKeyHex(trimmed);
+      saveVaultKey(trimmed);
+      showToast("Vault key imported", "success");
       setVaultKeyInput("");
     } catch (e) {
-      setTxStatus(`Invalid vault key: ${formatError(e)}`);
+      showToast(`Invalid vault key: ${formatError(e)}`, "error");
     }
   }, [vaultKeyInput]);
 
@@ -294,17 +375,19 @@ export default function App() {
     if (!api || !signerCommitment.trim()) return;
     setIsWorking(true);
     setWorkingMsg("Adding signer...");
-    setTxStatus("");
+    setTxStage("proving");
     try {
       await api.initSigner(hexToBytes(signerCommitment.trim()));
-      setTxStatus("Signer added");
+      showToast("Signer added", "success");
       setSignerCommitment("");
+      setSignersRefreshKey((k) => k + 1);
     } catch (e) {
       console.error("initSigner failed:", e);
-      setTxStatus(`Failed: ${formatError(e)}`);
+      showToast(`Failed: ${formatError(e)}`, "error");
     } finally {
       setIsWorking(false);
       setWorkingMsg("");
+      setTxStage("idle");
     }
   }, [api, signerCommitment]);
 
@@ -312,33 +395,37 @@ export default function App() {
     if (!api) return;
     setIsWorking(true);
     setWorkingMsg("Finalizing...");
-    setTxStatus("");
+    setTxStage("proving");
     try {
       await api.finalize();
-      setTxStatus("Contract finalized");
+      showToast("Contract finalized", "success");
       setPhase("dashboard");
     } catch (e) {
       console.error("Finalize failed:", e);
-      setTxStatus(`Failed: ${formatError(e)}`);
+      showToast(`Failed: ${formatError(e)}`, "error");
     } finally {
       setIsWorking(false);
       setWorkingMsg("");
+      setTxStage("idle");
     }
   }, [api]);
 
   const doAction = useCallback(async (label: string, fn: () => Promise<void>) => {
     setIsWorking(true);
-    setWorkingMsg(`${label}...`);
-    setTxStatus("");
+    // Initial stage — proof generation. Later stages are pushed by the tx
+    // stage listener registered above (balancing, submitting).
+    setWorkingMsg(`${label}: generating proof...`);
+    setTxStage("proving");
     try {
       await fn();
-      setTxStatus(`${label} -- success`);
+      showToast(`${label} -- success`, "success");
     } catch (e) {
       console.error(`${label} failed:`, e);
-      setTxStatus(`Failed: ${formatError(e)}`);
+      showToast(`Failed: ${formatError(e)}`, "error");
     } finally {
       setIsWorking(false);
       setWorkingMsg("");
+      setTxStage("idle");
     }
   }, []);
 
@@ -363,7 +450,7 @@ export default function App() {
                 <Icon name="account_balance_wallet" />
                 Connect Lace Wallet
               </button>
-              <p className="text-on-surface-variant/60 font-label text-sm tracking-wide">SHIELDED tNIGHT -- ZERO-KNOWLEDGE PROOFS</p>
+              <p className="text-on-surface-variant/60 font-label text-sm tracking-wide">SHIELDED POLY -- ZERO-KNOWLEDGE PROOFS</p>
             </div>
             {error && (
               <div className="mt-8 w-full bg-error-container/10 border border-error/20 rounded-xl p-4 text-left flex items-start gap-3">
@@ -375,7 +462,7 @@ export default function App() {
               <div className="bg-surface-container-low/50 p-4 rounded-xl flex flex-col items-start gap-2 text-left">
                 <Icon name="shield" className="text-secondary" />
                 <span className="font-headline font-semibold text-sm">Shielded Tokens</span>
-                <span className="text-xs text-on-surface-variant">Native tNIGHT with encrypted proposals.</span>
+                <span className="text-xs text-on-surface-variant">Native POLY with encrypted proposals.</span>
               </div>
               <div className="bg-surface-container-low/50 p-4 rounded-xl flex flex-col items-start gap-2 text-left">
                 <Icon name="group" className="text-secondary" />
@@ -427,9 +514,9 @@ export default function App() {
     <div className="flex min-h-screen bg-background text-on-surface font-body">
       <Sidebar
         mode={mode}
-        onModeChange={(m) => { setMode(m); setTxStatus(""); }}
+        onModeChange={(m) => setMode(m)}
         activeWalletTab={walletTab}
-        onWalletTabChange={(t) => { setWalletTab(t); setTxStatus(""); }}
+        onWalletTabChange={(t) => setWalletTab(t)}
         address={myCommitment || undefined}
         interactive={phase === "dashboard"}
       />
@@ -445,10 +532,11 @@ export default function App() {
               tokenAddress={tokenAddress}
               tokenColor={tokenColor}
               myAddress={myAddress}
-              myShieldedCpk={myShieldedCpk}
+              myShieldedAddress={myShieldedAddress}
               isWorking={isWorking}
               doAction={doAction}
               onDeploy={deployToken}
+              onJoin={joinToken}
               onMint={(amount, pk) => mintTokens(amount, pk)}
             />
           )}
@@ -464,50 +552,43 @@ export default function App() {
               </div>
               {mySecret && <IdentityCard secret={mySecret} commitment={myCommitment} />}
 
-              {/* Vault Key Import (for joining) */}
-              {!vaultKey && (
-                <div className="bg-surface-container rounded-2xl p-6 space-y-3">
-                  <label className="block text-sm font-headline font-bold text-outline">Import Vault Key (for existing multisig)</label>
-                  <div className="flex gap-3">
-                    <input placeholder="Vault key hex (from deployer)" value={vaultKeyInput} onChange={(e) => setVaultKeyInput(e.target.value)}
-                      className="flex-1 bg-surface-container-lowest border-none rounded-xl py-3 px-5 text-on-surface font-label text-sm focus:ring-2 focus:ring-primary/50 transition-all outline-none placeholder:text-outline/40" />
-                    <button onClick={importVaultKeyAction} disabled={!vaultKeyInput.trim()}
-                      className="px-6 py-3 rounded-xl gradient-btn text-on-primary font-headline font-bold disabled:opacity-50">
-                      Import
-                    </button>
+              {/* Step 1: Deploy Token — prerequisite ONLY for the Deploy Multisig path */}
+              <div className="bg-surface-container-low rounded-2xl p-8 relative overflow-hidden">
+                <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-tertiary to-tertiary-container" />
+                <div className="flex items-start justify-between gap-6 flex-wrap">
+                  <div className="flex-1 min-w-[16rem]">
+                    <h3 className="text-xl font-headline font-extrabold tracking-tight mb-2">1. Deploy Shielded Token</h3>
+                    <p className="text-on-surface-variant text-sm">
+                      Create a shielded token contract (<code className="text-xs">mintShieldedToken</code>).
+                      Skip this if you are joining an existing multisig.
+                    </p>
+                  </div>
+                  <div className="flex-1 min-w-[16rem]">
+                    {tokenAddress ? (
+                      <div className="space-y-3">
+                        <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-3 flex items-center gap-2">
+                          <Icon name="check_circle" filled className="text-emerald-400" />
+                          <span className="text-xs text-emerald-400 font-bold">Token already deployed</span>
+                        </div>
+                        <button
+                          onClick={() => setMode("token")}
+                          className="w-full py-3 rounded-xl bg-surface-container-highest hover:bg-surface-bright text-on-surface font-headline font-bold border border-outline-variant/30 flex items-center justify-center gap-2"
+                        >
+                          Open Token tab <Icon name="arrow_forward" className="text-sm" />
+                        </button>
+                      </div>
+                    ) : (
+                      <button onClick={() => setMode("token")} disabled={isWorking}
+                        className="w-full py-3 rounded-xl gradient-btn text-on-primary font-headline font-bold disabled:opacity-50 flex items-center justify-center gap-2">
+                        Go to Token tab <Icon name="arrow_forward" className="text-sm" />
+                      </button>
+                    )}
                   </div>
                 </div>
-              )}
-              {vaultKey && (
-                <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-3 flex items-center gap-2">
-                  <Icon name="check_circle" filled className="text-emerald-400" />
-                  <span className="text-sm text-emerald-400 font-headline font-bold">Vault key loaded</span>
-                </div>
-              )}
+              </div>
 
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                {/* Step 1: Deploy Token */}
-                <div className="bg-surface-container-low rounded-2xl p-8 relative overflow-hidden">
-                  <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-tertiary to-tertiary-container" />
-                  <h3 className="text-xl font-headline font-extrabold tracking-tight mb-2">1. Deploy Shielded Token</h3>
-                  <p className="text-on-surface-variant text-sm mb-6">Create a shielded token contract (mintShieldedToken).</p>
-                  {tokenAddress ? (
-                    <div className="space-y-2">
-                      <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-3 flex items-center gap-2">
-                        <Icon name="check_circle" filled className="text-emerald-400" />
-                        <span className="text-xs text-emerald-400 font-bold">Deployed</span>
-                      </div>
-                      {tokenColor && <p className="text-xs text-outline break-all">Color: {tokenColor.slice(0, 16)}...</p>}
-                    </div>
-                  ) : (
-                    <button onClick={deployToken} disabled={isWorking}
-                      className="w-full py-3 rounded-xl gradient-btn text-on-primary font-headline font-bold disabled:opacity-50">
-                      Deploy Token
-                    </button>
-                  )}
-                </div>
-
-                {/* Step 2: Deploy Multisig */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* Deploy Multisig (depends on token) */}
                 <div className="bg-surface-container-low rounded-2xl p-8 relative overflow-hidden">
                   <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-primary to-primary-container" />
                   <h3 className="text-xl font-headline font-extrabold tracking-tight mb-2">2. Deploy Multisig</h3>
@@ -533,12 +614,30 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* Step 3: Join */}
+                {/* Join Existing (vault key + address in same card) */}
                 <div className="bg-surface-container-low rounded-2xl p-8 relative overflow-hidden">
                   <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-secondary to-secondary-container" />
                   <h3 className="text-xl font-headline font-extrabold tracking-tight mb-2">Or: Join Existing</h3>
-                  <p className="text-on-surface-variant text-sm mb-4">Import vault key above first.</p>
+                  <p className="text-on-surface-variant text-sm mb-4">Only signers already registered on the contract can join.</p>
                   <div className="space-y-3">
+                    <div>
+                      <label className="block text-xs font-headline font-bold text-outline mb-1">Vault Key</label>
+                      {vaultKey ? (
+                        <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-2.5 flex items-center gap-2">
+                          <Icon name="check_circle" filled className="text-emerald-400 text-sm" />
+                          <span className="text-xs text-emerald-400 font-headline font-bold">Vault key loaded</span>
+                        </div>
+                      ) : (
+                        <div className="flex gap-2">
+                          <input placeholder="Vault key hex (from deployer)" value={vaultKeyInput} onChange={(e) => setVaultKeyInput(e.target.value)}
+                            className="flex-1 bg-surface-container-lowest border-none rounded-xl py-3 px-4 text-on-surface font-label text-xs focus:ring-2 focus:ring-primary/50 transition-all outline-none placeholder:text-outline/40" />
+                          <button onClick={importVaultKeyAction} disabled={!vaultKeyInput.trim()}
+                            className="px-4 py-3 rounded-xl bg-surface-container-highest text-on-surface font-headline font-bold text-xs disabled:opacity-50">
+                            Import
+                          </button>
+                        </div>
+                      )}
+                    </div>
                     <div>
                       <label className="block text-xs font-headline font-bold text-outline mb-1">Contract Address</label>
                       <input placeholder="0x..." value={joinAddr} onChange={(e) => setJoinAddr(e.target.value)}
@@ -571,13 +670,13 @@ export default function App() {
                         <div>
                           <p className="text-xs uppercase font-bold tracking-widest text-outline font-label mb-1">Configuration Status</p>
                           <h3 className="text-2xl font-headline font-bold text-primary">
-                            Signers: {state.signerCount.toString()}
-                            <span className="text-outline text-lg font-normal ml-2">(threshold: {state.threshold.toString()})</span>
+                            {state.signerCount.toString()}/{state.threshold.toString()}
+                            <span className="text-outline text-lg font-normal ml-2">signers / threshold</span>
                           </h3>
                         </div>
                         <div className="w-32 h-2 bg-surface-container-highest rounded-full overflow-hidden">
                           <div className="h-full bg-gradient-to-r from-primary to-primary-container rounded-full"
-                            style={{ width: `${Math.min(100, (Number(state.signerCount) / Math.max(1, Number(state.threshold) + 1)) * 100)}%` }} />
+                            style={{ width: `${Math.min(100, (Number(state.signerCount) / Math.max(1, Number(state.threshold))) * 100)}%` }} />
                         </div>
                       </div>
                     </div>
@@ -593,7 +692,7 @@ export default function App() {
                       </button>
                     </div>
                   </div>
-                  <SignerListCard api={api!} myCommitment={myCommitment} />
+                  <SignerListCard api={api!} myCommitment={myCommitment} refreshKey={signersRefreshKey} />
                 </div>
                 <div className="lg:col-span-4 flex flex-col gap-6">
                   <IdentityCard secret={mySecret} commitment={myCommitment} />
@@ -640,16 +739,15 @@ export default function App() {
                   </div>
                 </div>
               )}
-              {walletTab === "overview" && <DashboardOverview state={state} api={api} contractAddress={contractAddress} mySecret={mySecret} myCommitment={myCommitment} onNavigate={setWalletTab} />}
+              {walletTab === "overview" && <DashboardOverview state={state} api={api} contractAddress={contractAddress} vaultKeyHex={vaultKeyHex} mySecret={mySecret} myCommitment={myCommitment} onNavigate={setWalletTab} />}
               {walletTab === "deposit" && api && <DepositTab api={api} tokenColor={tokenColor} doAction={doAction} />}
-              {walletTab === "propose-transfer" && api && <ProposeTransferTab api={api} vaultKey={vaultKey} doAction={doAction} />}
+              {walletTab === "propose-transfer" && api && <ProposeTransferTab api={api} vaultKey={vaultKey} myShieldedAddress={myShieldedAddress} doAction={doAction} />}
               {walletTab === "propose-signer" && api && <ProposeSignerTab api={api} doAction={doAction} myCommitment={myCommitment} />}
-              {walletTab === "transactions" && api && <TransactionsTab api={api} vaultKey={vaultKey} doAction={doAction} />}
+              {walletTab === "transactions" && api && <TransactionsTab api={api} vaultKey={vaultKey} threshold={state?.threshold ?? 0n} doAction={doAction} />}
             </>
           )}
 
-          {isWorking && <Spinner message={workingMsg} />}
-          {txStatus && <StatusMessage message={txStatus} />}
+          {isWorking && <Spinner message={workingMsg} stage={txStage} />}
         </main>
 
         <div className="fixed top-0 right-0 w-[500px] h-[500px] bg-primary/5 rounded-full blur-[120px] -z-10 pointer-events-none" />

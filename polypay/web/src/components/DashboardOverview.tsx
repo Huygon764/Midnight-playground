@@ -1,13 +1,13 @@
 import type { PolyPayDerivedState, DeployedPolyPayAPI } from "../../../api/src/index.js";
 import type { WalletTab } from "../types.js";
-import { truncateHex } from "../utils.js";
 import { Icon, CopyButton } from "./ui.js";
 import { IdentityCard } from "./IdentityCard.js";
 
 export function DashboardOverview({
   state,
-  api,
+  api: _api,
   contractAddress,
+  vaultKeyHex,
   mySecret,
   myCommitment,
   onNavigate,
@@ -15,6 +15,7 @@ export function DashboardOverview({
   state: PolyPayDerivedState | null;
   api: DeployedPolyPayAPI | null;
   contractAddress: string;
+  vaultKeyHex: string | null;
   mySecret: string;
   myCommitment: string;
   onNavigate: (tab: WalletTab) => void;
@@ -36,7 +37,7 @@ export function DashboardOverview({
               <h2 className="text-3xl font-headline font-extrabold text-on-surface tracking-tight">
                 {vaultBalance}
               </h2>
-              <span className="text-primary font-label font-bold">tNIGHT</span>
+              <span className="text-primary font-label font-bold">POLY</span>
             </div>
           </div>
 
@@ -78,14 +79,32 @@ export function DashboardOverview({
         </div>
       )}
 
-      {contractAddress && (
-        <div className="bg-surface-container rounded-2xl p-4 flex items-center gap-3 mb-6">
-          <Icon name="description" className="text-outline" />
-          <span className="text-xs font-label text-outline uppercase tracking-wider">
-            Contract:
-          </span>
-          <span className="font-label text-sm text-secondary">{truncateHex(contractAddress)}</span>
-          <CopyButton text={contractAddress} />
+      {(contractAddress || vaultKeyHex) && (
+        <div className="bg-surface-container rounded-2xl p-5 mb-6 space-y-3">
+          {contractAddress && (
+            <div className="flex items-start gap-3">
+              <Icon name="description" className="text-outline mt-0.5 shrink-0" />
+              <div className="flex-1 min-w-0">
+                <span className="block text-xs font-label text-outline uppercase tracking-wider mb-1">
+                  Contract Address
+                </span>
+                <span className="font-label text-sm text-secondary break-all">{contractAddress}</span>
+              </div>
+              <CopyButton text={contractAddress} />
+            </div>
+          )}
+          {vaultKeyHex && (
+            <div className="flex items-start gap-3 pt-3 border-t border-outline-variant/10">
+              <Icon name="key" className="text-tertiary mt-0.5 shrink-0" />
+              <div className="flex-1 min-w-0">
+                <span className="block text-xs font-label text-outline uppercase tracking-wider mb-1">
+                  Vault Key <span className="text-tertiary/80 normal-case font-body">— share with co-signers</span>
+                </span>
+                <span className="font-label text-sm text-on-surface break-all">{vaultKeyHex}</span>
+              </div>
+              <CopyButton text={vaultKeyHex} />
+            </div>
+          )}
         </div>
       )}
 
