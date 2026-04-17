@@ -1,4 +1,4 @@
-import { PolyPay, Token, type PolyPayPrivateState, type TokenPrivateState } from "../../contract/src/index.js";
+import { PolyPay, type PolyPayPrivateState } from "../../contract/src/index.js";
 import type { MidnightProviders } from "@midnight-ntwrk/midnight-js-types";
 import type { DeployedContract, FoundContract } from "@midnight-ntwrk/midnight-js-contracts";
 import { type ProvableCircuitId } from "@midnight-ntwrk/compact-js";
@@ -17,11 +17,11 @@ export type DeployedPolyPayContract =
   | FoundContract<PolyPayContract>;
 
 export type PolyPayDerivedState = {
-  readonly tokenColor: Uint8Array;
   readonly signerCount: bigint;
   readonly threshold: bigint;
   readonly finalized: boolean;
   readonly txCounter: bigint;
+  readonly vaultBalance: bigint;
 };
 
 export type TransactionInfo = {
@@ -30,16 +30,3 @@ export type TransactionInfo = {
   readonly status: bigint;
   readonly approvals: bigint;
 };
-
-// Token contract types
-export type TokenCircuitKeys = ProvableCircuitId<Token.Contract<TokenPrivateState>>;
-
-export const tokenPrivateStateKey = "tokenPrivateState";
-
-export type TokenProviders = MidnightProviders<TokenCircuitKeys, typeof tokenPrivateStateKey, TokenPrivateState>;
-
-export type TokenContract = Token.Contract<TokenPrivateState>;
-
-export type DeployedTokenContract =
-  | DeployedContract<TokenContract>
-  | FoundContract<TokenContract>;

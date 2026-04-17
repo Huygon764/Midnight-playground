@@ -2,14 +2,12 @@ export type Mode = "token" | "wallet";
 
 export type Phase = "connect" | "connecting" | "setup" | "init-signers" | "dashboard" | "error";
 
-export type TokenTab = "token-info" | "token-mint";
 export type WalletTab = "overview" | "deposit" | "propose-transfer" | "propose-signer" | "transactions";
 
 export type DoAction = (label: string, fn: () => Promise<void>) => Promise<void>;
 
-export const TOKEN_NAV_ITEMS: { id: TokenTab; icon: string; label: string }[] = [
+export const TOKEN_NAV_ITEMS: { id: string; icon: string; label: string }[] = [
   { id: "token-info", icon: "token", label: "Token" },
-  { id: "token-mint", icon: "add_card", label: "Mint" },
 ];
 
 export const WALLET_NAV_ITEMS: { id: WalletTab; icon: string; label: string }[] = [

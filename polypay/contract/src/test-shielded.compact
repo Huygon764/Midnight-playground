@@ -1,0 +1,221 @@
+pragma language_version >= 0.20;
+
+import CompactStandardLibrary;
+
+// Hypothesis verification for polypay 186 bug:
+// - γ: 6 Map reads only (no Bool, no Set) → confirms "count-based" (≥6 reads triggers)
+// - δ: Option A mirror (Bool + Set + 3 Maps, vaultCoin.lookup only, no .member) → verifies fix shape
+// - α: retry spendVaultAll3NoHash to reconfirm 5-read pass
+
+export ledger vaultCoin: Map<Bytes<32>, QualifiedShieldedCoinInfo>;
+export ledger depositCounter: Counter;
+export ledger testStatus: Map<Bytes<32>, Uint<8>>;
+export ledger testData: Map<Bytes<32>, Bytes<32>>;
+export ledger testSigners: Set<Bytes<32>>;
+export ledger testFinalized: Boolean;
+export ledger testApprovalCounts: Map<Bytes<32>, Counter>;
+// Mirror polypay txStatuses stamp (for Option A)
+export ledger testStatusStamp: Map<Bytes<32>, Uint<8>>;
+
+// Binary search: field-count threshold for insertCoin-on-change 186.
+// 8: pass, 12: pass, 14: pass, 15: pass, 16: fail, 17: fail.
+// Sanity re-test: 16 fields (+8 dummy) to confirm threshold.
+export ledger dummy1: Bytes<32>;
+export ledger dummy2: Map<Uint<64>, Uint<8>>;
+export ledger dummy3: Counter;
+export ledger dummy4: Set<Bytes<32>>;
+export ledger dummy5: Map<Uint<64>, Bytes<32>>;
+export ledger dummy6: Bytes<32>;
+export ledger dummy7: Map<Uint<64>, Bytes<32>>;
+export ledger dummy8: Uint<8>;
+
+witness localSecret(): Bytes<32>;
+witness wRecipient(): Bytes<32>;
+witness wAmount(): Uint<128>;
+
+circuit selfAsRecipient(): Either<ZswapCoinPublicKey, ContractAddress> {
+  return right<ZswapCoinPublicKey, ContractAddress>(kernel.self());
+}
+
+constructor() {
+  const secret = localSecret();
+}
+
+export circuit mintShieldedToUser(
+  domainSep: Bytes<32>,
+  value: Uint<64>,
+  nonce: Bytes<32>
+): ShieldedCoinInfo {
+  const secret = localSecret();
+  return mintShieldedToken(
+    disclose(domainSep),
+    disclose(value),
+    disclose(nonce),
+    left<ZswapCoinPublicKey, ContractAddress>(ownPublicKey())
+  );
+}
+
+export circuit receiveShieldedTokens(coin: ShieldedCoinInfo): [] {
+  const secret = localSecret();
+  receiveShielded(disclose(coin));
+  depositCounter.increment(1);
+  const key = depositCounter.read() as Field as Bytes<32>;
+  vaultCoin.insertCoin(disclose(key), disclose(coin), selfAsRecipient());
+}
+
+export circuit setTestData(dataKey: Bytes<32>, value: Bytes<32>): [] {
+  testData.insert(disclose(dataKey), disclose(value));
+}
+
+// Populate a stamp entry — used by δ to mark a dataKey as "approved"
+export circuit setTestStamp(key: Bytes<32>, value: Uint<8>): [] {
+  testStatusStamp.insert(disclose(key), disclose(value));
+}
+
+circuit deriveTestCommitment(secret: Bytes<32>): Bytes<32> {
+  return persistentHash<Vector<2, Bytes<32>>>([pad(32, "test:pk:"), secret]);
+}
+
+export circuit setupLikePolypay(dataKey: Bytes<32>): [] {
+  const secret = localSecret();
+  const commitment = deriveTestCommitment(secret);
+  testSigners.insert(disclose(commitment));
+  testFinalized = disclose(true);
+  testApprovalCounts.insertDefault(disclose(dataKey));
+  testApprovalCounts.lookup(disclose(dataKey)).increment(1);
+}
+
+// α (retry): All3 minus hash check — 5 reads with Bool+Set+Counter.
+// Should PASS consistently (previous test got 170 transient, retry got success).
+export circuit spendVaultAll3NoHash(coinKey: Bytes<32>, dataKey: Bytes<32>): [] {
+  assert(testFinalized == true, "Not finalized");
+  const secret = localSecret();
+  const commitment = deriveTestCommitment(secret);
+  assert(testSigners.member(disclose(commitment)), "Not a signer");
+  assert(testApprovalCounts.lookup(disclose(dataKey)).read() >= 1, "Not enough approvals");
+  const recipientPk = wRecipient();
+  const amount = wAmount();
+  assert(vaultCoin.member(disclose(coinKey)), "Coin not found");
+  const coin = vaultCoin.lookup(disclose(coinKey));
+  assert(coin.value >= disclose(amount), "Insufficient balance");
+  const recipient = left<ZswapCoinPublicKey, ContractAddress>(
+    ZswapCoinPublicKey { bytes: disclose(recipientPk) }
+  );
+  const result = sendShielded(coin, recipient, disclose(amount));
+  const self = selfAsRecipient();
+  if (result.change.is_some) {
+    depositCounter.increment(1);
+    const changeKey = depositCounter.read() as Field as Bytes<32>;
+    vaultCoin.insertCoin(disclose(changeKey), result.change.value, self);
+  }
+  vaultCoin.remove(disclose(coinKey));
+  testStatus.insert(disclose(coinKey), disclose(1 as Uint<8>));
+}
+
+// γ: 6 Map reads, NO Bool, NO Set. Tests if "pure count" triggers bug.
+// Reads: testData x4 + vaultCoin.member + vaultCoin.lookup = 6 Map reads.
+// - If FAIL → count-based confirmed (any 6 reads trigger, not type-specific)
+// - If PASS → Bool+Set combination required (our Option A at 5 reads might be borderline)
+export circuit spendVault6Maps(
+  coinKey: Bytes<32>,
+  dataKey1: Bytes<32>,
+  dataKey2: Bytes<32>,
+  dataKey3: Bytes<32>,
+  dataKey4: Bytes<32>
+): [] {
+  const secret = localSecret();
+  const recipientPk = wRecipient();
+  const amount = wAmount();
+  // Map read 1: hash check (testData.lookup dataKey1)
+  const expectedHash = persistentHash<Vector<2, Bytes<32>>>(
+    [disclose(recipientPk), disclose(amount) as Field as Bytes<32>]
+  );
+  assert(expectedHash == testData.lookup(disclose(dataKey1)), "Hash mismatch");
+  // Map reads 2, 3, 4: dummy testData.lookups
+  const d2 = testData.lookup(disclose(dataKey2));
+  const d3 = testData.lookup(disclose(dataKey3));
+  const d4 = testData.lookup(disclose(dataKey4));
+  assert(d2 == d2 && d3 == d3 && d4 == d4, "never fails");
+  // Map read 5: vaultCoin.member
+  assert(vaultCoin.member(disclose(coinKey)), "Coin not found");
+  // Map read 6: vaultCoin.lookup
+  const coin = vaultCoin.lookup(disclose(coinKey));
+  assert(coin.value >= disclose(amount), "Insufficient balance");
+  const recipient = left<ZswapCoinPublicKey, ContractAddress>(
+    ZswapCoinPublicKey { bytes: disclose(recipientPk) }
+  );
+  const result = sendShielded(coin, recipient, disclose(amount));
+  const self = selfAsRecipient();
+  if (result.change.is_some) {
+    depositCounter.increment(1);
+    const changeKey = depositCounter.read() as Field as Bytes<32>;
+    vaultCoin.insertCoin(disclose(changeKey), result.change.value, self);
+  }
+  vaultCoin.remove(disclose(coinKey));
+  testStatus.insert(disclose(coinKey), disclose(1 as Uint<8>));
+}
+
+// δ: Option A mirror for polypay fix design.
+// Reads: testFinalized (Bool) + testSigners.member (Set) + testStatusStamp.lookup (Map)
+//        + testData.lookup (Map) + vaultCoin.lookup (Map, NO .member) = 5 reads.
+// - If PASS → Option A design will work. Also confirms vaultCoin.lookup alone is safe.
+// - If FAIL → Option A design is broken, need different fix.
+// δ2: like δ but the post-shielded write goes to testStatusStamp (same map as read)
+// at the SAME key (dataKey). Tests if read+write of same map slot triggers 186.
+export circuit spendVaultSameMap(coinKey: Bytes<32>, dataKey: Bytes<32>): [] {
+  assert(testFinalized == true, "Not finalized");
+  const secret = localSecret();
+  const commitment = deriveTestCommitment(secret);
+  assert(testSigners.member(disclose(commitment)), "Not a signer");
+  assert(testStatusStamp.lookup(disclose(dataKey)) == disclose(1 as Uint<8>), "Not approved");
+  const recipientPk = wRecipient();
+  const amount = wAmount();
+  const expectedHash = persistentHash<Vector<2, Bytes<32>>>(
+    [disclose(recipientPk), disclose(amount) as Field as Bytes<32>]
+  );
+  assert(expectedHash == testData.lookup(disclose(dataKey)), "Hash mismatch");
+  const coin = vaultCoin.lookup(disclose(coinKey));
+  assert(coin.value >= disclose(amount), "Insufficient balance");
+  const recipient = left<ZswapCoinPublicKey, ContractAddress>(
+    ZswapCoinPublicKey { bytes: disclose(recipientPk) }
+  );
+  const result = sendShielded(coin, recipient, disclose(amount));
+  const self = selfAsRecipient();
+  if (result.change.is_some) {
+    depositCounter.increment(1);
+    const changeKey = depositCounter.read() as Field as Bytes<32>;
+    vaultCoin.insertCoin(disclose(changeKey), result.change.value, self);
+  }
+  vaultCoin.remove(disclose(coinKey));
+  // Write SAME MAP SAME SLOT — mirror polypay txStatuses.insert(txId, 2)
+  testStatusStamp.insert(disclose(dataKey), disclose(2 as Uint<8>));
+}
+
+export circuit spendVaultOptionAMirror(coinKey: Bytes<32>, dataKey: Bytes<32>): [] {
+  assert(testFinalized == true, "Not finalized");                                        // Read 1: Bool
+  const secret = localSecret();
+  const commitment = deriveTestCommitment(secret);
+  assert(testSigners.member(disclose(commitment)), "Not a signer");                      // Read 2: Set
+  assert(testStatusStamp.lookup(disclose(dataKey)) == disclose(1 as Uint<8>), "Not approved"); // Read 3: Map
+  const recipientPk = wRecipient();
+  const amount = wAmount();
+  const expectedHash = persistentHash<Vector<2, Bytes<32>>>(
+    [disclose(recipientPk), disclose(amount) as Field as Bytes<32>]
+  );
+  assert(expectedHash == testData.lookup(disclose(dataKey)), "Hash mismatch");           // Read 4: Map
+  // NO vaultCoin.member — rely on .lookup throwing on missing key
+  const coin = vaultCoin.lookup(disclose(coinKey));                                       // Read 5: Map
+  assert(coin.value >= disclose(amount), "Insufficient balance");
+  const recipient = left<ZswapCoinPublicKey, ContractAddress>(
+    ZswapCoinPublicKey { bytes: disclose(recipientPk) }
+  );
+  const result = sendShielded(coin, recipient, disclose(amount));
+  const self = selfAsRecipient();
+  if (result.change.is_some) {
+    depositCounter.increment(1);
+    const changeKey = depositCounter.read() as Field as Bytes<32>;
+    vaultCoin.insertCoin(disclose(changeKey), result.change.value, self);
+  }
+  vaultCoin.remove(disclose(coinKey));
+  testStatus.insert(disclose(coinKey), disclose(1 as Uint<8>));
+}

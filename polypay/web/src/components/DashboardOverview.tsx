@@ -1,18 +1,13 @@
-import { useState, useEffect, useCallback } from "react";
 import type { PolyPayDerivedState, DeployedPolyPayAPI } from "../../../api/src/index.js";
-import { utils } from "../../../api/src/index.js";
 import type { WalletTab } from "../types.js";
 import { truncateHex } from "../utils.js";
-import { toHex } from "@midnight-ntwrk/midnight-js-utils";
 import { Icon, CopyButton } from "./ui.js";
 import { IdentityCard } from "./IdentityCard.js";
-import { getIndexerUri } from "../providers.js";
 
 export function DashboardOverview({
   state,
   api,
   contractAddress,
-  tokenSymbol,
   mySecret,
   myCommitment,
   onNavigate,
@@ -20,39 +15,14 @@ export function DashboardOverview({
   state: PolyPayDerivedState | null;
   api: DeployedPolyPayAPI | null;
   contractAddress: string;
-  tokenSymbol: string;
   mySecret: string;
   myCommitment: string;
   onNavigate: (tab: WalletTab) => void;
 }) {
-  const [vaultBalance, setVaultBalance] = useState("--");
-
-  const colorHex = state ? toHex(state.tokenColor) : "";
-  const hasColor = colorHex && colorHex !== "0".repeat(64);
-
-  const refreshBalance = useCallback(async () => {
-    if (!api || !hasColor) return;
-    try {
-      const indexerUri = getIndexerUri();
-      const balances = await utils.queryVaultBalance(indexerUri, api.deployedContractAddress);
-      console.log("[vaultBalance] direct GraphQL:", balances);
-      const entry = balances.find((b) => b.tokenType === colorHex);
-      setVaultBalance(entry ? entry.balance.toString() : "0");
-    } catch (err) {
-      console.error("[vaultBalance] error:", err);
-      setVaultBalance("?");
-    }
-  }, [api, hasColor, colorHex]);
-
-  useEffect(() => {
-    refreshBalance();
-    const interval = setInterval(refreshBalance, 10_000);
-    return () => clearInterval(interval);
-  }, [refreshBalance]);
+  const vaultBalance = state ? state.vaultBalance.toString() : "--";
 
   return (
     <>
-      {/* Stats Row */}
       {state && (
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
           <div className="bg-surface-container-low p-6 rounded-2xl flex flex-col gap-2 relative overflow-hidden">
@@ -66,7 +36,7 @@ export function DashboardOverview({
               <h2 className="text-3xl font-headline font-extrabold text-on-surface tracking-tight">
                 {vaultBalance}
               </h2>
-              <span className="text-primary font-label font-bold">{tokenSymbol || "tokens"}</span>
+              <span className="text-primary font-label font-bold">tNIGHT</span>
             </div>
           </div>
 
@@ -108,7 +78,6 @@ export function DashboardOverview({
         </div>
       )}
 
-      {/* Contract Address */}
       {contractAddress && (
         <div className="bg-surface-container rounded-2xl p-4 flex items-center gap-3 mb-6">
           <Icon name="description" className="text-outline" />
@@ -120,7 +89,6 @@ export function DashboardOverview({
         </div>
       )}
 
-      {/* Quick Actions */}
       <div className="mb-8 flex flex-wrap gap-4">
         <button
           onClick={() => onNavigate("deposit")}

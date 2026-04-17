@@ -4,14 +4,14 @@ import { type WitnessContext } from "@midnight-ntwrk/compact-runtime";
 
 export type PolyPayPrivateState = {
   readonly secret: Uint8Array;
+  readonly pendingTransferRecipient?: Uint8Array;
+  readonly pendingTransferAmount?: bigint;
 };
 
 export const createPolyPayPrivateState = (secret: Uint8Array): PolyPayPrivateState => ({
   secret,
 });
 
-// Witness provides secret to ZK circuits without disclosing it on-chain.
-// All impure circuits require this witness — see ADR-001 for why.
 export const witnesses = {
   localSecret: ({
     privateState,
@@ -19,8 +19,27 @@ export const witnesses = {
     privateState,
     privateState.secret,
   ],
+
+  transferRecipient: ({
+    privateState,
+  }: WitnessContext<Ledger, PolyPayPrivateState>): [PolyPayPrivateState, Uint8Array] => {
+    if (!privateState.pendingTransferRecipient) {
+      throw new Error("No pending transfer recipient set");
+    }
+    return [privateState, privateState.pendingTransferRecipient];
+  },
+
+  transferAmount: ({
+    privateState,
+  }: WitnessContext<Ledger, PolyPayPrivateState>): [PolyPayPrivateState, bigint] => {
+    if (privateState.pendingTransferAmount === undefined) {
+      throw new Error("No pending transfer amount set");
+    }
+    return [privateState, privateState.pendingTransferAmount];
+  },
 };
 
+// Token contract
 export type TokenPrivateState = {
   readonly secret: Uint8Array;
 };

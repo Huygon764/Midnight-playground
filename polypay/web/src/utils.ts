@@ -3,7 +3,7 @@ import { MidnightBech32m, UnshieldedAddress } from "@midnight-ntwrk/wallet-sdk-a
 
 const STORAGE_KEY = "polypay:secret";
 const CONTRACT_KEY = "polypay:contract";
-const TOKEN_KEY = "polypay:token-contract";
+const VAULT_KEY_KEY = "polypay:vault-key";
 
 export function formatError(e: unknown): string {
   console.error("[formatError] Full error object:", e);
@@ -56,12 +56,12 @@ export function loadContractAddress(): string | null {
   return localStorage.getItem(CONTRACT_KEY);
 }
 
-export function saveTokenAddress(address: string) {
-  localStorage.setItem(TOKEN_KEY, address);
+export function saveVaultKey(hex: string) {
+  localStorage.setItem(VAULT_KEY_KEY, hex);
 }
 
-export function loadTokenAddress(): string | null {
-  return localStorage.getItem(TOKEN_KEY);
+export function loadVaultKey(): string | null {
+  return localStorage.getItem(VAULT_KEY_KEY);
 }
 
 export function clearSession() {
@@ -71,7 +71,7 @@ export function clearSession() {
 export function clearAll() {
   localStorage.removeItem(STORAGE_KEY);
   localStorage.removeItem(CONTRACT_KEY);
-  localStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem(VAULT_KEY_KEY);
 }
 
 export function truncateHex(hex: string): string {

@@ -1,28 +1,24 @@
-import { type Mode, type TokenTab, type WalletTab, TOKEN_NAV_ITEMS, WALLET_NAV_ITEMS } from "../types.js";
+import { type Mode, type WalletTab, TOKEN_NAV_ITEMS, WALLET_NAV_ITEMS } from "../types.js";
 import { truncateHex, clearSession } from "../utils.js";
 import { Icon, CopyButton } from "./ui.js";
 
 export function Sidebar({
   mode,
   onModeChange,
-  activeTokenTab,
   activeWalletTab,
-  onTokenTabChange,
   onWalletTabChange,
   address,
   interactive,
 }: {
   mode: Mode;
   onModeChange: (mode: Mode) => void;
-  activeTokenTab: TokenTab;
   activeWalletTab: WalletTab;
-  onTokenTabChange: (tab: TokenTab) => void;
   onWalletTabChange: (tab: WalletTab) => void;
   address?: string;
   interactive: boolean;
 }) {
   const navItems = mode === "token" ? TOKEN_NAV_ITEMS : WALLET_NAV_ITEMS;
-  const activeTab = mode === "token" ? activeTokenTab : activeWalletTab;
+  const activeTab = mode === "token" ? "token-info" : activeWalletTab;
 
   return (
     <aside className="h-screen w-64 fixed left-0 top-0 flex flex-col bg-surface-container-lowest py-8 px-4 gap-6 z-50">
@@ -40,14 +36,11 @@ export function Sidebar({
         </div>
       </div>
 
-      {/* Mode Switcher */}
       <div className="flex gap-1 bg-surface-container rounded-xl p-1">
         <button
           onClick={() => onModeChange("token")}
           className={`flex-1 py-2 rounded-lg text-xs font-headline font-bold transition-all ${
-            mode === "token"
-              ? "bg-primary/10 text-primary"
-              : "text-outline hover:text-on-surface"
+            mode === "token" ? "bg-primary/10 text-primary" : "text-outline hover:text-on-surface"
           }`}
         >
           Token
@@ -55,9 +48,7 @@ export function Sidebar({
         <button
           onClick={() => onModeChange("wallet")}
           className={`flex-1 py-2 rounded-lg text-xs font-headline font-bold transition-all ${
-            mode === "wallet"
-              ? "bg-primary/10 text-primary"
-              : "text-outline hover:text-on-surface"
+            mode === "wallet" ? "bg-primary/10 text-primary" : "text-outline hover:text-on-surface"
           }`}
         >
           Multisig
@@ -71,14 +62,13 @@ export function Sidebar({
             <button
               key={item.id}
               onClick={() => {
-                if (!interactive) return;
-                if (mode === "token") onTokenTabChange(item.id as TokenTab);
-                else onWalletTabChange(item.id as WalletTab);
+                if (!interactive && mode === "wallet") return;
+                if (mode === "wallet") onWalletTabChange(item.id as WalletTab);
               }}
               className={`flex items-center gap-3 px-4 py-3 rounded-xl text-left transition-all duration-200 ${
                 isActive
                   ? "text-primary font-bold border-r-4 border-primary-container bg-white/5"
-                  : interactive
+                  : interactive || mode === "token"
                     ? "text-outline hover:text-on-surface hover:bg-surface-container cursor-pointer"
                     : "text-outline/40 cursor-default"
               }`}

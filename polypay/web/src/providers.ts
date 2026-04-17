@@ -11,7 +11,7 @@ import {
   throwError,
   timeout,
 } from "rxjs";
-import { type ConnectedAPI, type InitialAPI, type WalletConnectedAPI } from "@midnight-ntwrk/dapp-connector-api";
+import { type ConnectedAPI, type InitialAPI } from "@midnight-ntwrk/dapp-connector-api";
 import { FetchZkConfigProvider } from "@midnight-ntwrk/midnight-js-fetch-zk-config-provider";
 import { httpClientProofProvider } from "@midnight-ntwrk/midnight-js-http-client-proof-provider";
 import { indexerPublicDataProvider } from "@midnight-ntwrk/midnight-js-indexer-public-data-provider";
@@ -34,6 +34,7 @@ let cachedProviders: Promise<PolyPayProviders> | undefined;
 let cachedConnectedAPI: ConnectedAPI | undefined;
 let cachedUnshieldedAddress: Uint8Array | undefined;
 let cachedUnshieldedAddressBech32m: string | undefined;
+let cachedShieldedCoinPublicKey: string | undefined;
 let cachedIndexerUri: string | undefined;
 
 export const getProviders = (): Promise<PolyPayProviders> => {
@@ -48,6 +49,11 @@ export const getConnectedAPI = (): ConnectedAPI => {
 export const getUnshieldedAddressBytes = (): Uint8Array => {
   if (!cachedUnshieldedAddress) throw new Error("Wallet not connected");
   return cachedUnshieldedAddress;
+};
+
+export const getShieldedCoinPublicKey = (): string => {
+  if (!cachedShieldedCoinPublicKey) throw new Error("Wallet not connected");
+  return cachedShieldedCoinPublicKey;
 };
 
 export const getUnshieldedAddress = (): string => {
@@ -65,12 +71,29 @@ const initializeProviders = async (): Promise<PolyPayProviders> => {
   const connectedAPI = await connectToWallet(networkId);
   cachedConnectedAPI = connectedAPI;
   const zkConfigPath = window.location.origin;
-  const keyMaterialProvider = new FetchZkConfigProvider<PolyPayCircuitKeys>(zkConfigPath, fetch.bind(window));
+  const baseProvider = new FetchZkConfigProvider<PolyPayCircuitKeys>(zkConfigPath, fetch.bind(window));
+  // Wrapper: throw for system circuits (midnight/*) so http-client-proof-provider
+  // passes undefined keyMaterial and the proof server uses its built-in system keys.
+  // Without this, vite SPA fallback returns index.html for missing /keys/midnight/...
+  // paths, which corrupts the proving payload.
+  const keyMaterialProvider = new Proxy(baseProvider, {
+    get(target, prop, receiver) {
+      if (prop === "getProverKey" || prop === "getVerifierKey" || prop === "getZKIR") {
+        return (circuitId: string) => {
+          if (circuitId.startsWith("midnight/")) {
+            return Promise.reject(new Error(`system circuit ${circuitId} — use proof server built-in`));
+          }
+          return (Reflect.get(target, prop, receiver) as any).call(target, circuitId);
+        };
+      }
+      return Reflect.get(target, prop, receiver);
+    },
+  });
   const config = await connectedAPI.getConfiguration();
   cachedIndexerUri = config.indexerUri;
-  console.log("[providers] Wallet config:", JSON.stringify(config, null, 2));
   const privateStateProvider = inMemoryPrivateStateProvider<string, PolyPayPrivateState>();
   const shieldedAddresses = await connectedAPI.getShieldedAddresses();
+  cachedShieldedCoinPublicKey = shieldedAddresses.shieldedCoinPublicKey;
 
   const { unshieldedAddress } = await connectedAPI.getUnshieldedAddress();
   cachedUnshieldedAddressBech32m = unshieldedAddress;
@@ -91,35 +114,20 @@ const initializeProviders = async (): Promise<PolyPayProviders> => {
         return shieldedAddresses.shieldedEncryptionPublicKey;
       },
       balanceTx: async (tx: UnboundTransaction): Promise<FinalizedTransaction> => {
-        try {
-          console.log("[balanceTx] Sending tx to wallet for balancing...");
-          const serializedTx = toHex(tx.serialize());
-          const received = await connectedAPI.balanceUnsealedTransaction(serializedTx);
-          console.log("[balanceTx] Wallet balanced tx successfully");
-          return Transaction.deserialize<SignatureEnabled, Proof, Binding>(
-            "signature",
-            "proof",
-            "binding",
-            fromHex(received.tx),
-          );
-        } catch (e) {
-          console.error("[balanceTx] FAILED:", e);
-          throw e;
-        }
+        const serializedTx = toHex(tx.serialize());
+        const received = await connectedAPI.balanceUnsealedTransaction(serializedTx);
+        return Transaction.deserialize<SignatureEnabled, Proof, Binding>(
+          "signature",
+          "proof",
+          "binding",
+          fromHex(received.tx),
+        );
       },
     },
     midnightProvider: {
       submitTx: async (tx: FinalizedTransaction): Promise<TransactionId> => {
-        try {
-          console.log("[submitTx] Submitting tx to network...");
-          await connectedAPI.submitTransaction(toHex(tx.serialize()));
-          const txId = tx.identifiers()[0];
-          console.log("[submitTx] Submitted successfully, txId:", txId);
-          return txId;
-        } catch (e) {
-          console.error("[submitTx] FAILED:", e);
-          throw e;
-        }
+        await connectedAPI.submitTransaction(toHex(tx.serialize()));
+        return tx.identifiers()[0];
       },
     },
   };
