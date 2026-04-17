@@ -28,7 +28,7 @@ Why can't we do it in one step?
 
 Each impure circuit compiles to a proving key (~5MB) and verification key. All circuit keys must be included in the deploy transaction. The node rejects deploy transactions that exceed an undocumented size threshold.
 
-MPay now has **9 impure circuits** -- reduced from the original 12 by unifying the four propose circuits into one generic `propose(txType, d0, d1, d2, d3)`:
+MPay now has **10 impure circuits** — reduced from the original 12 by unifying the four propose circuits into one generic `propose(txType, d0, d1, d2, d3)`, then adding `stampReady` for the threshold-change rescue case:
 
 | Category | Circuits |
 |----------|----------|
@@ -36,6 +36,7 @@ MPay now has **9 impure circuits** -- reduced from the original 12 by unifying t
 | Token | `deposit` |
 | Propose | `propose` (generic, txType selects variant) |
 | Approve | `approveTx` |
+| Rescue | `stampReady` (re-stamps pending tx when approvals meet current threshold) |
 | Execute | `executeTransfer`, `executeAddSigner`, `executeRemoveSigner`, `executeSetThreshold` |
 
 Adding a batch `initSigners(commitments[])` circuit would push past the limit. We already had to **remove the `withdraw` circuit** (see ADR-001) and **collapse four propose circuits into one** to stay under ~12.

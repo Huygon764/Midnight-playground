@@ -134,6 +134,7 @@ In the Transactions tab:
 - **Partial-value transfers not supported** — Transfers spend a full vault coin. Deposit the exact amount you want to send.
 - **Recipient must execute their own transfer** — `sendShielded` on Midnight currently doesn't notify external wallets. If the recipient isn't a signer, they won't see the coin after execute.
 - **Token name invisible in Lace wallet** — Midnight has no on-chain token metadata standard. Lace shows custom tokens as "Shielded unnamed token (…)". The dApp labels it `MPAY`.
+- **Stale ready-stamp after threshold change** — a pending tx's ready status is computed at approval time, not re-checked when `setThreshold` changes the threshold later. Rescued by the on-chain `stampReady(txId)` circuit: when a pending tx already meets the current threshold, the UI shows a "Stamp Ready" button (amber "NEEDS STAMP" badge) that anyone can click to refresh its status. After stamping, Execute becomes available.
 - **Browser-local state, no sync** — clearing localStorage or switching browser = new signer identity.
 - **No on-chain unit tests** — tested end-to-end on preprod only.
 

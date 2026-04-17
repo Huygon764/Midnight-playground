@@ -191,6 +191,27 @@ export circuit approveTx(txId: Uint<64>): [] {
 }
 
 // ============================================================
+// STAMP READY (rescue for txs stuck pending after threshold lowered)
+// ============================================================
+//
+// approveTx stamps ready inline using the threshold at approval time.
+// When executeSetThreshold later LOWERS the threshold, pending txs whose
+// approval count already meets the new threshold stay status=0 — no
+// re-evaluation. This circuit re-checks the condition and stamps ready.
+//
+// Open to anyone (no signer gate): the action is monotonic (pending -> ready
+// only when approvals >= current threshold) so it can't be weaponized.
+// No shielded op, so fields+reads budget doesn't apply.
+
+export circuit stampReady(txId: Uint<64>): [] {
+  assert(finalized == true, "Not finalized");
+  assert(txStatuses.member(disclose(txId)), "Tx not found");
+  assert(txStatuses.lookup(disclose(txId)) == 0, "Tx not pending");
+  assert(txApprovalCounts.lookup(disclose(txId)).read() >= threshold, "Not enough approvals");
+  txStatuses.insert(disclose(txId), disclose(1 as Uint<8>));
+}
+
+// ============================================================
 // EXECUTE (signer-only, when threshold met)
 // ============================================================
 

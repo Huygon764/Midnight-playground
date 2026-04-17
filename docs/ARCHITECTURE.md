@@ -12,7 +12,7 @@
 
 ## Contracts
 
-### mpay.compact (9 circuits)
+### mpay.compact (10 circuits)
 
 | Category | Circuits |
 |----------|----------|
@@ -20,6 +20,7 @@
 | Deposit | deposit |
 | Propose | propose (generic, txType selects transfer/addSigner/removeSigner/setThreshold) |
 | Approve | approveTx |
+| Rescue | stampReady (re-evaluates pending tx against current threshold; open to anyone) |
 | Execute | executeTransfer, executeAddSigner, executeRemoveSigner, executeSetThreshold |
 | Pure | deriveCommitment, computeNullifier |
 
@@ -67,7 +68,7 @@ On decryption, `TransactionsTab` rebuilds the full `mn_shield-addr_...` via the 
 
 | File | Purpose |
 |------|---------|
-| `contract/src/mpay.compact` | Main multisig contract (9 circuits, 17 ledger fields) |
+| `contract/src/mpay.compact` | Main multisig contract (10 circuits, 17 ledger fields) |
 | `contract/src/token.compact` | Custom shielded token (`mintShieldedToken`) |
 | `contract/src/witnesses.ts` | Witness functions (`localSecret`, `transferRecipient`, `transferAmount`) |
 | `api/src/index.ts` | MPayAPI (deploy/join, propose/approve/execute) |

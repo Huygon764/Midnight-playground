@@ -4,7 +4,7 @@
 
 | What we built | What we excluded | Why |
 |---------------|------------------|-----|
-| 9-circuit MPay + 1-circuit token | Separate proposeX for each tx type | Generic `propose(txType, d0-d3)` saved 3 circuits to stay under ~12 circuit deploy limit |
+| 10-circuit MPay + 1-circuit token | Separate proposeX for each tx type | Generic `propose(txType, d0-d3)` saved 3 circuits to stay under ~12 circuit deploy limit |
 | Full-coin-spend executeTransfer | Partial-value transfers with change | `insertCoin`-on-change triggers Substrate error 186 above 15 ledger fields; MPay has 17 |
 | 3-read executeTransfer | Hash verification of encrypted recipient | `fields + reads ≤ 20` when circuit uses `sendShielded` — removed hash check to fit budget |
 | Vault key encryption (AES-GCM) for proposal data | Per-signer encryption (hybrid ECIES) | Per-signer needs 2 new ledger maps → pushes fields beyond executeTransfer budget |
@@ -62,5 +62,9 @@ A new browser generates a new secret on first connect (via wallet `signData`). T
 - **Partial-value transfers** — not implemented. Would require ≤15 ledger fields + `insertCoin` on change; MPay has 17.
 - **Recipient notification** — external wallets don't see coins sent by `sendShielded`. Workaround: recipient executes the transfer themselves. Fix is upstream (Midnight SDK / Compact stdlib).
 - **Token metadata** — no name/symbol/decimals displayed in Lace. Midnight has no standard. Fix depends on wallet/chain changes.
+- **Stale ready-stamp after threshold change** — `txStatuses[txId]` is stamped `ready (1)` at approval time, based on the threshold in effect at that moment. `executeSetThreshold` does NOT re-evaluate existing pending txs. So:
+  - Lowering threshold: a pending tx with `approvals >= new threshold` stays `pending` on-chain until someone re-stamps it (see rescue path below).
+  - Raising threshold: a tx already stamped `ready` stays executable even under the stricter new threshold — the stamp is not invalidated.
+  - **Rescue path**: the contract exposes `stampReady(txId)` (open to anyone, no signer gate). It asserts the tx is pending and that `approvals >= current threshold`, then sets `status = 1`. The UI detects this state automatically and renders a "Stamp Ready" button (amber "NEEDS STAMP" badge) on affected rows; clicking it calls `stampReady` and the tx becomes executable. This avoids having to iterate pending txs inside `executeSetThreshold` — Compact can't loop over runtime-variable Map sizes anyway.
 - **localStorage namespace** — keys not scoped by network or wallet. Switching wallets on same browser overwrites state.
 - **Contract-level unit tests** — MPay only tested end-to-end on preprod; no vitest suite.

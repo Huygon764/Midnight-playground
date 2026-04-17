@@ -92,6 +92,13 @@ export function TransactionsTab({
     });
   };
 
+  const handleStampReady = (tx: TransactionInfo) => {
+    doAction(`Stamp Ready #${tx.txId}`, async () => {
+      await api.stampReady(tx.txId);
+      await refreshList();
+    });
+  };
+
   const handleExecute = (tx: TransactionInfo) => {
     const type = tx.txType.toString();
     doAction(`Execute #${tx.txId} (${TX_TYPE_LABELS[type]})`, async () => {
@@ -162,6 +169,10 @@ export function TransactionsTab({
                   const isPending = tx.status === 0n;
                   const isReady = tx.status === 1n;
                   const isExecuted = tx.status === 2n;
+                  // Tx is stuck: approvals already meet threshold (e.g. after
+                  // setThreshold lowered it) but stamp wasn't re-evaluated.
+                  // Anyone can call stampReady to fix.
+                  const needsStamp = isPending && tx.approvals >= threshold && threshold > 0n;
                   const isActive = isPending || isReady;
                   const dec = decrypted[tx.txId.toString()];
                   return (
@@ -236,7 +247,15 @@ export function TransactionsTab({
                         </span>
                       </td>
                       <td className="px-8 py-5">
-                        {isPending && (
+                        {needsStamp && (
+                          <span className="relative inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold font-headline bg-amber-500/10 text-amber-400 border border-amber-500/20 cursor-help group">
+                            NEEDS STAMP
+                            <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-64 hidden group-hover:block px-3 py-2 bg-surface-container-highest text-on-surface text-[11px] font-body font-normal normal-case tracking-normal leading-snug rounded-lg shadow-xl border border-outline-variant/30 z-50 text-left pointer-events-none">
+                              Approvals meet the current threshold, but the on-chain ready-stamp wasn't refreshed after <code className="text-amber-400">setThreshold</code>. Anyone can click "Stamp Ready" to fix it.
+                            </span>
+                          </span>
+                        )}
+                        {isPending && !needsStamp && (
                           <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold font-headline bg-tertiary/10 text-tertiary border border-tertiary/20">
                             PENDING
                           </span>
@@ -253,7 +272,15 @@ export function TransactionsTab({
                         )}
                       </td>
                       <td className="px-8 py-5 text-right">
-                        {isPending && (
+                        {needsStamp && (
+                          <button
+                            onClick={() => handleStampReady(tx)}
+                            className="px-4 py-1.5 rounded-lg text-xs font-bold font-headline bg-amber-500/10 text-amber-400 border border-amber-500/20 hover:bg-amber-500/20 transition-all active:scale-95"
+                          >
+                            Stamp Ready
+                          </button>
+                        )}
+                        {isPending && !needsStamp && (
                           <button
                             onClick={() => handleApprove(tx)}
                             className="px-4 py-1.5 rounded-lg text-xs font-bold font-headline bg-primary/10 text-primary border border-primary/20 hover:bg-primary/20 transition-all active:scale-95"

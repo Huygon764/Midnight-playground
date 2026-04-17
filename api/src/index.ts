@@ -53,6 +53,10 @@ export interface DeployedMPayAPI {
   // Approve
   approveTx: (txId: bigint) => Promise<void>;
 
+  // Re-stamp a pending tx whose approval count meets the current threshold
+  // (rescue after executeSetThreshold lowers the threshold).
+  stampReady: (txId: bigint) => Promise<void>;
+
   // Execute (transfer reads from witness)
   executeTransfer: (
     txId: bigint,
@@ -178,6 +182,14 @@ export class MPayAPI implements DeployedMPayAPI {
   async approveTx(txId: bigint): Promise<void> {
     this.logger?.info({ txId }, "approveTx");
     await this.deployedContract.callTx.approveTx(txId);
+  }
+
+  // Re-evaluate a pending tx against the current threshold and stamp it ready
+  // when approvals already meet the new threshold. Needed after setThreshold
+  // lowers the threshold — approveTx only stamps at approval time.
+  async stampReady(txId: bigint): Promise<void> {
+    this.logger?.info({ txId }, "stampReady");
+    await this.deployedContract.callTx.stampReady(txId);
   }
 
   // Execute — set witness then call circuit
