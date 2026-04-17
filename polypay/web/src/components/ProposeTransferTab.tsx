@@ -2,7 +2,25 @@ import { useState } from "react";
 import type { DeployedPolyPayAPI } from "../../../api/src/index.js";
 import type { DoAction } from "../types.js";
 import { hexToBytes } from "../utils.js";
+import { MidnightBech32m, ShieldedAddress } from "@midnight-ntwrk/wallet-sdk-address-format";
 import { Icon } from "./ui.js";
+
+const NETWORK_ID = (import.meta.env.VITE_NETWORK_ID ?? "preprod") as string;
+
+function parseRecipient(input: string): Uint8Array {
+  const trimmed = input.trim();
+  if (trimmed.startsWith("mn_shield-addr_")) {
+    const parsed = MidnightBech32m.parse(trimmed);
+    const decoded = parsed.decode(ShieldedAddress, NETWORK_ID as any);
+    return new Uint8Array(decoded.coinPublicKey.data);
+  }
+  // Fallback: raw 32-byte hex (64 chars)
+  const bytes = hexToBytes(trimmed);
+  if (bytes.length !== 32) {
+    throw new Error("Recipient must be a shielded address (mn_shield-addr_...) or 32-byte hex");
+  }
+  return bytes;
+}
 
 export function ProposeTransferTab({
   api,
@@ -40,10 +58,10 @@ export function ProposeTransferTab({
         <div className="bg-surface-container-low rounded-3xl p-8 space-y-6">
           <div className="space-y-3">
             <label className="text-xs font-bold font-headline uppercase tracking-widest text-outline ml-1">
-              Recipient Shielded Public Key (hex)
+              Recipient Shielded Address
             </label>
             <input
-              placeholder="Recipient's shielded coin public key (64 hex chars)"
+              placeholder="mn_shield-addr_preprod1..."
               value={recipientCpk}
               onChange={(e) => setRecipientCpk(e.target.value)}
               className="w-full bg-surface-container-highest border-none rounded-2xl py-5 px-6 font-label text-on-surface placeholder:text-outline/40 focus:ring-2 focus:ring-primary/50 transition-all outline-none"
@@ -79,9 +97,11 @@ export function ProposeTransferTab({
 
           <button
             onClick={() => {
-              const cpkBytes = hexToBytes(recipientCpk);
-              if (cpkBytes.length !== 32) {
-                alert("Recipient public key must be 32 bytes (64 hex characters)");
+              let cpkBytes: Uint8Array;
+              try {
+                cpkBytes = parseRecipient(recipientCpk);
+              } catch (e) {
+                alert((e as Error).message);
                 return;
               }
               doAction("Propose Transfer", () =>

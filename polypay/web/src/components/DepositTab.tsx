@@ -1,13 +1,16 @@
 import { useState } from "react";
 import type { DeployedPolyPayAPI } from "../../../api/src/index.js";
 import type { DoAction } from "../types.js";
+import { hexToBytes } from "../utils.js";
 import { Icon } from "./ui.js";
 
 export function DepositTab({
   api,
+  tokenColor,
   doAction,
 }: {
   api: DeployedPolyPayAPI;
+  tokenColor: string;
   doAction: DoAction;
 }) {
   const [amount, setAmount] = useState("");
@@ -69,14 +72,20 @@ export function DepositTab({
                 alert("Amount must be a positive integer (atomic units)");
                 return;
               }
+              if (!tokenColor) {
+                alert("Token color not set — deploy the token contract first");
+                return;
+              }
+              const nonce = new Uint8Array(32);
+              crypto.getRandomValues(nonce);
               const coin = {
-                nonce: new Uint8Array(32),
-                color: new Uint8Array(32), // nativeToken() = all zeros
+                nonce,
+                color: hexToBytes(tokenColor),
                 value: BigInt(parsed),
               };
               doAction("Deposit", () => api.deposit(coin));
             }}
-            disabled={!amount}
+            disabled={!amount || !tokenColor}
             className="w-full gradient-btn py-5 rounded-2xl text-on-primary font-headline font-extrabold text-xl tracking-tight shadow-xl hover:brightness-110 active:scale-[0.98] transition-all flex items-center justify-center gap-3 disabled:opacity-50"
           >
             <Icon name="savings" filled />

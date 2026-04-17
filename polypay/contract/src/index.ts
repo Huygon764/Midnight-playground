@@ -35,12 +35,24 @@ export const CompiledTokenContract = CompiledContract.make<
 );
 
 // Minimal test contract for shielded operations
-type TestShieldedPrivateState = { readonly secret: Uint8Array };
+type TestShieldedPrivateState = {
+  readonly secret: Uint8Array;
+  readonly pendingRecipient?: Uint8Array;
+  readonly pendingAmount?: bigint;
+};
 const testShieldedWitnesses = {
   localSecret: ({ privateState }: { privateState: TestShieldedPrivateState }): [TestShieldedPrivateState, Uint8Array] => [
     privateState,
     privateState.secret,
   ],
+  wRecipient: ({ privateState }: { privateState: TestShieldedPrivateState }): [TestShieldedPrivateState, Uint8Array] => {
+    if (!privateState.pendingRecipient) throw new Error("wRecipient: no pending recipient");
+    return [privateState, privateState.pendingRecipient];
+  },
+  wAmount: ({ privateState }: { privateState: TestShieldedPrivateState }): [TestShieldedPrivateState, bigint] => {
+    if (privateState.pendingAmount === undefined) throw new Error("wAmount: no pending amount");
+    return [privateState, privateState.pendingAmount];
+  },
 };
 export const CompiledTestShieldedContract = CompiledContract.make<
   TestShieldedContract.Contract<TestShieldedPrivateState>

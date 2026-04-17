@@ -14,40 +14,25 @@ import * as crypto from "./crypto.js";
 import { deployContract, findDeployedContract } from "@midnight-ntwrk/midnight-js-contracts";
 import { map, type Observable } from "rxjs";
 import { type PolyPayPrivateState, createPolyPayPrivateState } from "../../contract/src/index.js";
-import { persistentHash } from "@midnight-ntwrk/compact-runtime";
+import { persistentHash, CompactTypeVector, CompactTypeBytes } from "@midnight-ntwrk/compact-runtime";
 
-// Compute proposal hash matching Compact: persistentHash<Vector<2, Bytes<32>>>([cpk, amountBytes])
-function computeProposalHash(recipientCpk: Uint8Array, amount: bigint): Uint8Array {
-  // Convert amount to Bytes<32> (same as Compact: amount as Field as Bytes<32>)
-  const amountBytes = new Uint8Array(32);
-  let v = amount;
-  for (let i = 31; i >= 0; i--) {
-    amountBytes[i] = Number(v & 0xffn);
-    v >>= 8n;
-  }
-  // Vector<2, Bytes<32>> matches the Compact circuit hash type
-  const vectorType = { size: 2, elementType: { size: 32 } };
-  return persistentHash(vectorType as any, [recipientCpk, amountBytes]);
-}
-
-// Convert bigint to 32-byte big-endian (matches Compact: value as Field as Bytes<32>)
-function bigintToBytes32BE(value: bigint): Uint8Array {
+// Convert bigint to 32-byte little-endian. Matches Compact's `x as Field as Bytes<32>`
+// which uses compact-runtime's `convertFieldToBytes` (LSB at index 0, MSB at index 31).
+function bigintToBytes32LE(value: bigint): Uint8Array {
   const bytes = new Uint8Array(32);
   let v = value;
-  for (let i = 31; i >= 0; i--) {
+  for (let i = 0; i < 32; i++) {
     bytes[i] = Number(v & 0xffn);
     v >>= 8n;
+    if (v === 0n) break;
   }
   return bytes;
 }
 
-// Convert 32-byte big-endian to bigint
-function bytes32BEToBigint(bytes: Uint8Array): bigint {
-  let value = 0n;
-  for (let i = 0; i < 32; i++) {
-    value = (value << 8n) | BigInt(bytes[i]);
-  }
-  return value;
+// Compute proposal hash matching Compact: persistentHash<Vector<2, Bytes<32>>>([cpk, amountBytes])
+const proposalHashType = new CompactTypeVector(2, new CompactTypeBytes(32));
+function computeProposalHash(recipientCpk: Uint8Array, amount: bigint): Uint8Array {
+  return persistentHash(proposalHashType, [recipientCpk, bigintToBytes32LE(amount)]);
 }
 
 export interface DeployedPolyPayAPI {
@@ -114,7 +99,7 @@ export class PolyPayAPI implements DeployedPolyPayAPI {
           try {
             const count = l.depositCounter;
             for (let i = 1n; i <= count; i++) {
-              const key = bigintToBytes32BE(i);
+              const key = bigintToBytes32LE(i);
               if (l.vaultCoin.member(key)) {
                 vaultBalance += l.vaultCoin.lookup(key).value;
               }
@@ -298,7 +283,7 @@ export class PolyPayAPI implements DeployedPolyPayAPI {
     const count = l.depositCounter;
     const coins: { key: Uint8Array; value: bigint }[] = [];
     for (let i = 1n; i <= count; i++) {
-      const key = bigintToBytes32BE(i);
+      const key = bigintToBytes32LE(i);
       try {
         if (l.vaultCoin.member(key)) {
           const coin = l.vaultCoin.lookup(key);

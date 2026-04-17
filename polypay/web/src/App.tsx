@@ -612,8 +612,36 @@ export default function App() {
           {/* ── Dashboard ─────────────────────────────────── */}
           {mode === "wallet" && phase === "dashboard" && (
             <>
+              {!vaultKey && (
+                <div className="mb-6 bg-tertiary/10 border border-tertiary/20 rounded-2xl p-5">
+                  <div className="flex items-start gap-3 mb-3">
+                    <Icon name="key" className="text-tertiary text-xl mt-0.5" />
+                    <div className="flex-1">
+                      <h4 className="font-headline font-bold text-tertiary">Vault Key Not Loaded</h4>
+                      <p className="text-xs text-on-surface-variant mt-1">
+                        Import the vault key shared by the contract deployer to decrypt transfer proposals and execute transfers. Approve still works without it (but blind).
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex gap-3">
+                    <input
+                      placeholder="Vault key hex (from deployer)"
+                      value={vaultKeyInput}
+                      onChange={(e) => setVaultKeyInput(e.target.value)}
+                      className="flex-1 bg-surface-container-lowest border-none rounded-xl py-3 px-5 text-on-surface font-label text-sm focus:ring-2 focus:ring-primary/50 transition-all outline-none placeholder:text-outline/40"
+                    />
+                    <button
+                      onClick={importVaultKeyAction}
+                      disabled={!vaultKeyInput.trim()}
+                      className="px-6 py-3 rounded-xl gradient-btn text-on-primary font-headline font-bold disabled:opacity-50"
+                    >
+                      Import
+                    </button>
+                  </div>
+                </div>
+              )}
               {walletTab === "overview" && <DashboardOverview state={state} api={api} contractAddress={contractAddress} mySecret={mySecret} myCommitment={myCommitment} onNavigate={setWalletTab} />}
-              {walletTab === "deposit" && api && <DepositTab api={api} doAction={doAction} />}
+              {walletTab === "deposit" && api && <DepositTab api={api} tokenColor={tokenColor} doAction={doAction} />}
               {walletTab === "propose-transfer" && api && <ProposeTransferTab api={api} vaultKey={vaultKey} doAction={doAction} />}
               {walletTab === "propose-signer" && api && <ProposeSignerTab api={api} doAction={doAction} myCommitment={myCommitment} />}
               {walletTab === "transactions" && api && <TransactionsTab api={api} vaultKey={vaultKey} doAction={doAction} />}

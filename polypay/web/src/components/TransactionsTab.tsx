@@ -81,11 +81,11 @@ export function TransactionsTab({
         if (!dec) throw new Error("Cannot execute: transfer data not decrypted (missing vault key?)");
         const recipientCpk = polyCrypto.hexToUint8(dec.recipientCpk);
         const amount = BigInt(dec.amount);
-        // Find first available vault coin
+        // Find vault coin with exact matching value (Option A: full-coin-spend)
         const vaultCoins = await api.getVaultCoins();
         if (vaultCoins.length === 0) throw new Error("No coins in vault");
-        const coin = vaultCoins.find((c) => c.value >= amount);
-        if (!coin) throw new Error(`Insufficient vault balance (need ${amount}, largest coin: ${vaultCoins[0]?.value ?? 0})`);
+        const coin = vaultCoins.find((c) => c.value === amount);
+        if (!coin) throw new Error(`No vault coin with exact value ${amount}. Available: ${vaultCoins.map((c) => c.value).join(", ")}`);
         await api.executeTransfer(tx.txId, coin.key, recipientCpk, amount);
       } else if (type === "2") {
         await api.executeAddSigner(tx.txId);
@@ -140,11 +140,14 @@ export function TransactionsTab({
                 {txList.map((tx) => {
                   const typeStr = tx.txType.toString();
                   const isPending = tx.status === 0n;
+                  const isReady = tx.status === 1n;
+                  const isExecuted = tx.status === 2n;
+                  const isActive = isPending || isReady;
                   const dec = decrypted[tx.txId.toString()];
                   return (
                     <tr
                       key={tx.txId.toString()}
-                      className={`hover:bg-surface-container-highest/30 transition-colors ${!isPending ? "opacity-60" : ""}`}
+                      className={`hover:bg-surface-container-highest/30 transition-colors ${!isActive ? "opacity-60" : ""}`}
                     >
                       <td className="px-8 py-5 font-label text-sm text-secondary">
                         #{tx.txId.toString()}
@@ -184,11 +187,17 @@ export function TransactionsTab({
                         </span>
                       </td>
                       <td className="px-8 py-5">
-                        {isPending ? (
+                        {isPending && (
                           <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold font-headline bg-tertiary/10 text-tertiary border border-tertiary/20">
                             PENDING
                           </span>
-                        ) : (
+                        )}
+                        {isReady && (
+                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold font-headline bg-primary/10 text-primary border border-primary/20">
+                            READY
+                          </span>
+                        )}
+                        {isExecuted && (
                           <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold font-headline bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
                             EXECUTED
                           </span>
@@ -196,22 +205,22 @@ export function TransactionsTab({
                       </td>
                       <td className="px-8 py-5 text-right">
                         {isPending && (
-                          <div className="flex justify-end gap-2">
-                            <button
-                              onClick={() => handleApprove(tx)}
-                              className="px-4 py-1.5 rounded-lg text-xs font-bold font-headline bg-primary/10 text-primary border border-primary/20 hover:bg-primary/20 transition-all active:scale-95"
-                            >
-                              Approve
-                            </button>
-                            <button
-                              onClick={() => handleExecute(tx)}
-                              className="px-4 py-1.5 rounded-lg text-xs font-bold font-headline gradient-btn text-on-primary shadow-lg shadow-primary-container/20 hover:scale-105 active:scale-95 transition-all"
-                            >
-                              Execute
-                            </button>
-                          </div>
+                          <button
+                            onClick={() => handleApprove(tx)}
+                            className="px-4 py-1.5 rounded-lg text-xs font-bold font-headline bg-primary/10 text-primary border border-primary/20 hover:bg-primary/20 transition-all active:scale-95"
+                          >
+                            Approve
+                          </button>
                         )}
-                        {!isPending && (
+                        {isReady && (
+                          <button
+                            onClick={() => handleExecute(tx)}
+                            className="px-4 py-1.5 rounded-lg text-xs font-bold font-headline gradient-btn text-on-primary shadow-lg shadow-primary-container/20 hover:scale-105 active:scale-95 transition-all"
+                          >
+                            Execute
+                          </button>
+                        )}
+                        {isExecuted && (
                           <span className="text-xs font-label text-outline italic">Completed</span>
                         )}
                       </td>
