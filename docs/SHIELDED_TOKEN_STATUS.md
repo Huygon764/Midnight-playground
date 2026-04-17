@@ -45,7 +45,7 @@ witnesses.ts       — transferRecipient + transferAmount (private execute param
 
 **Result**: Full shielded kernel flow confirmed end-to-end on preprod via `test-shielded.html` — `mintShieldedToSelf`, `mintShieldedToUser`, `receiveShieldedTokens` all pass.
 
-**Details**: See `m-pay/docs/adr/006-shielded-kernel-ops-zkconfig.md`.
+**Details**: See `docs/adr/006-shielded-kernel-ops-zkconfig.md`.
 
 ### 2. Error 186 — EffectsCheckFailure on executeTransfer (2026-04-15 ~ 04-16, resolved)
 
@@ -211,7 +211,7 @@ Reverted all changes. Stuck with the original flow: `deposit → propose → app
 
 ## Current status (2026-04-17)
 
-`m-pay/contract/src/mpay.compact` has a **working executeTransfer**: 3-read Option A with signer auth + stamp check + full coin spend. Tested end-to-end on preprod.
+`contract/src/mpay.compact` has a **working executeTransfer**: 3-read Option A with signer auth + stamp check + full coin spend. Tested end-to-end on preprod.
 
 **What works**: deploy, mint, deposit, propose, approve, execute (3-read full-coin-spend), add/remove signer, set threshold, encrypted proposals, vault key management, coin selection by exact value.
 
@@ -235,13 +235,13 @@ Reverted all changes. Stuck with the original flow: `deposit → propose → app
 
 | File | Purpose |
 |------|---------|
-| `m-pay/contract/src/mpay.compact` | Main contract (3-read Option A) |
-| `m-pay/contract/src/token.compact` | Token mint (shielded) |
-| `m-pay/contract/src/test-shielded.compact` | Bisect playground for 186 investigation |
-| `m-pay/contract/src/witnesses.ts` | Witness functions (localSecret + transfer params) |
-| `m-pay/api/src/crypto.ts` | AES-256-GCM proposal encryption |
-| `m-pay/api/src/index.ts` | MPayAPI with encrypted propose + witness execute |
-| `m-pay/web/src/TestShieldedPage.tsx` | Standalone shielded test page |
-| `m-pay/web/src/providers.ts` | zkConfigProvider Proxy workaround (ADR-006) |
-| `m-pay/docs/adr/006-shielded-kernel-ops-zkconfig.md` | Proof server 400 root-cause and fix |
+| `contract/src/mpay.compact` | Main contract (3-read Option A) |
+| `contract/src/token.compact` | Token mint (shielded) |
+| `contract/src/test-shielded.compact` | Bisect playground for 186 investigation |
+| `contract/src/witnesses.ts` | Witness functions (localSecret + transfer params) |
+| `api/src/crypto.ts` | AES-256-GCM proposal encryption |
+| `api/src/index.ts` | MPayAPI with encrypted propose + witness execute |
+| `web/src/TestShieldedPage.tsx` | Standalone shielded test page |
+| `web/src/providers.ts` | zkConfigProvider Proxy workaround (ADR-006) |
+| `docs/adr/006-shielded-kernel-ops-zkconfig.md` | Proof server 400 root-cause and fix |
 | `docs/SHIELDED_TOKEN_STATUS.md` | This file |

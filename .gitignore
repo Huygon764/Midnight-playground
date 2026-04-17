@@ -42,3 +42,6 @@ managed/
 *.bak
 
 .vite/
+
+# Claude Code local state (memory notes + settings)
+.claude/
