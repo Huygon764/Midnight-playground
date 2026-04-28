@@ -81,6 +81,26 @@ export default function App() {
     return () => sub.unsubscribe();
   }, [api]);
 
+  // Route phase based on contract finalize-state once we have a connected api.
+  // Anyone who joined a non-finalized contract is gated out of the dashboard:
+  //   - The owner (deployer pre-finalize) is sent to init-signers to finish setup.
+  //   - All other signers see the pending-finalize waiting screen.
+  // When the contract becomes finalized, both flows advance to the dashboard.
+  useEffect(() => {
+    if (!api || !state || !myCommitment) return;
+    const ownerHex = toHex(state.owner);
+    const isOwner = ownerHex === myCommitment;
+    if (!state.finalized) {
+      if (phase === "dashboard" || (phase === "init-signers" && !isOwner) || (phase === "pending-finalize" && isOwner)) {
+        setPhase(isOwner ? "init-signers" : "pending-finalize");
+      }
+    } else {
+      if (phase === "init-signers" || phase === "pending-finalize") {
+        setPhase("dashboard");
+      }
+    }
+  }, [api, state, myCommitment, phase]);
+
   // Track tx lifecycle stages (balance = wallet sign, submit = network send)
   // so the spinner reflects actual progress instead of a generic "working".
   useEffect(() => {
@@ -199,6 +219,9 @@ export default function App() {
         setApi(payApi);
         setContractAddress(payApi.deployedContractAddress);
         setPhase("dashboard");
+        // Default to the multisig tab when the user already has a vault —
+        // that's almost always what they came back to use.
+        setMode("wallet");
       } else {
         setPhase("setup");
       }
@@ -331,6 +354,24 @@ export default function App() {
       showToast("Wallet not connected", "error");
       return;
     }
+    // Vault key is required to operate the multisig (decrypt proposals). Import
+    // it as part of join so users can't end up "joined but blind".
+    let importedKey: { key: CryptoKey; hex: string } | null = null;
+    if (!vaultKey) {
+      const trimmedKey = vaultKeyInput.trim();
+      if (!trimmedKey) {
+        showToast("Vault key required to join (paste the hex shared by deployer)", "error");
+        return;
+      }
+      try {
+        const key = await polyCrypto.importVaultKey(trimmedKey);
+        importedKey = { key, hex: trimmedKey };
+      } catch (e) {
+        showToast(`Invalid vault key: ${formatError(e)}`, "error");
+        return;
+      }
+    }
+
     setIsWorking(true);
     setWorkingMsg("Joining contract...");
     try {
@@ -342,9 +383,19 @@ export default function App() {
       if (!isSigner) {
         throw new Error("You are not a signer of this contract. Ask the deployer to add your commitment first.");
       }
+      // Persist vault key only after join succeeds — avoids leaving a stale
+      // key in localStorage if the user typed a wrong contract address.
+      if (importedKey) {
+        setVaultKey(importedKey.key);
+        setVaultKeyHex(importedKey.hex);
+        saveVaultKey(importedKey.hex);
+        setVaultKeyInput("");
+      }
       setApi(payApi);
       setContractAddress(payApi.deployedContractAddress);
       saveContractAddress(payApi.deployedContractAddress);
+      // Phase resolves to dashboard / pending-finalize / init-signers via the
+      // state-driven routing effect below, once the first state emission lands.
       setPhase("dashboard");
       showToast("Joined contract", "success");
     } catch (e) {
@@ -354,7 +405,7 @@ export default function App() {
       setIsWorking(false);
       setWorkingMsg("");
     }
-  }, [joinAddr, myCommitment]);
+  }, [joinAddr, myCommitment, vaultKey, vaultKeyInput]);
 
   const importVaultKeyAction = useCallback(async () => {
     if (!vaultKeyInput.trim()) return;
@@ -496,6 +547,7 @@ export default function App() {
     "token-info": "Shielded Token",
     setup: "Setup",
     "init-signers": "Add Signers",
+    "pending-finalize": "Awaiting Finalization",
     overview: "Dashboard",
     deposit: "Deposit",
     "propose-transfer": "Propose Transfer",
@@ -614,7 +666,7 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* Join Existing (vault key + address in same card) */}
+                {/* Join Existing — vault key + address in single submit. */}
                 <div className="bg-surface-container-low rounded-2xl p-8 relative overflow-hidden">
                   <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-secondary to-secondary-container" />
                   <h3 className="text-xl font-headline font-extrabold tracking-tight mb-2">Or: Join Existing</h3>
@@ -628,14 +680,8 @@ export default function App() {
                           <span className="text-xs text-emerald-400 font-headline font-bold">Vault key loaded</span>
                         </div>
                       ) : (
-                        <div className="flex gap-2">
-                          <input placeholder="Vault key hex (from deployer)" value={vaultKeyInput} onChange={(e) => setVaultKeyInput(e.target.value)}
-                            className="flex-1 bg-surface-container-lowest border-none rounded-xl py-3 px-4 text-on-surface font-label text-xs focus:ring-2 focus:ring-primary/50 transition-all outline-none placeholder:text-outline/40" />
-                          <button onClick={importVaultKeyAction} disabled={!vaultKeyInput.trim()}
-                            className="px-4 py-3 rounded-xl bg-surface-container-highest text-on-surface font-headline font-bold text-xs disabled:opacity-50">
-                            Import
-                          </button>
-                        </div>
+                        <input placeholder="Vault key hex (from deployer)" value={vaultKeyInput} onChange={(e) => setVaultKeyInput(e.target.value)}
+                          className="w-full bg-surface-container-lowest border-none rounded-xl py-3 px-4 text-on-surface font-label text-xs focus:ring-2 focus:ring-primary/50 transition-all outline-none placeholder:text-outline/40" />
                       )}
                     </div>
                     <div>
@@ -643,7 +689,7 @@ export default function App() {
                       <input placeholder="0x..." value={joinAddr} onChange={(e) => setJoinAddr(e.target.value)}
                         className="w-full bg-surface-container-lowest border-none rounded-xl py-3 px-4 text-on-surface font-label text-sm focus:ring-2 focus:ring-primary/50 transition-all outline-none placeholder:text-outline/40" />
                     </div>
-                    <button onClick={joinContract} disabled={isWorking || !joinAddr.trim()}
+                    <button onClick={joinContract} disabled={isWorking || !joinAddr.trim() || (!vaultKey && !vaultKeyInput.trim())}
                       className="w-full py-3 rounded-xl gradient-btn text-on-primary font-headline font-bold disabled:opacity-50 flex items-center justify-center gap-2">
                       Join <Icon name="arrow_forward" className="text-sm" />
                     </button>
@@ -659,8 +705,40 @@ export default function App() {
               <div className="space-y-2 mb-4">
                 <h2 className="text-4xl font-headline font-extrabold tracking-tight">Add Signers</h2>
                 <p className="text-on-surface-variant max-w-2xl">
-                  Define the multisig participants. Share the vault key with each signer.
+                  Define the multisig participants. Share the contract address and vault key with each signer so they can join.
                 </p>
+              </div>
+              <div className="bg-surface-container rounded-2xl p-6 mb-6 relative overflow-hidden">
+                <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-secondary to-secondary-container" />
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="w-9 h-9 rounded-full bg-secondary/15 flex items-center justify-center">
+                    <Icon name="ios_share" className="text-secondary" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-headline font-extrabold tracking-tight">Share with Signers</h3>
+                    <p className="text-xs text-on-surface-variant">Each co-signer needs both values to join. The vault key is held only in your browser — losing it locks proposal decryption.</p>
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="bg-surface-container-lowest rounded-xl p-4">
+                    <p className="text-[10px] uppercase tracking-widest font-label text-outline mb-2">Contract Address</p>
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="font-label text-xs text-on-surface truncate">{contractAddress}</p>
+                      <CopyButton text={contractAddress} />
+                    </div>
+                  </div>
+                  <div className="bg-surface-container-lowest rounded-xl p-4">
+                    <p className="text-[10px] uppercase tracking-widest font-label text-outline mb-2">Vault Key (hex)</p>
+                    {vaultKeyHex ? (
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="font-label text-xs text-on-surface truncate">{vaultKeyHex}</p>
+                        <CopyButton text={vaultKeyHex} />
+                      </div>
+                    ) : (
+                      <p className="text-xs text-on-surface-variant">Not loaded</p>
+                    )}
+                  </div>
+                </div>
               </div>
               <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
                 <div className="lg:col-span-8 space-y-6">
@@ -703,6 +781,56 @@ export default function App() {
                     </button>
                     <p className="text-[10px] text-center text-outline mt-3 font-label uppercase tracking-widest">Locks contract for operations</p>
                   </div>
+                </div>
+              </div>
+            </>
+          )}
+
+          {/* ── Awaiting Finalization (non-owner signers) ── */}
+          {mode === "wallet" && phase === "pending-finalize" && (
+            <>
+              <div className="space-y-2 mb-8">
+                <h2 className="text-4xl font-headline font-extrabold tracking-tight">Awaiting Finalization</h2>
+                <p className="text-on-surface-variant max-w-2xl">
+                  This contract is still in setup. The deployer must finish adding signers and finalize before any operations are allowed. The dashboard will unlock automatically.
+                </p>
+              </div>
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <div className="lg:col-span-2 bg-surface-container rounded-2xl p-8 relative overflow-hidden">
+                  <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-tertiary to-tertiary-container" />
+                  <div className="flex items-center gap-3 mb-6">
+                    <div className="w-10 h-10 rounded-full bg-tertiary/15 flex items-center justify-center">
+                      <Icon name="hourglass_top" filled className="text-tertiary" />
+                    </div>
+                    <h3 className="text-xl font-headline font-extrabold tracking-tight">Setup in progress</h3>
+                  </div>
+                  {state ? (
+                    <div className="grid grid-cols-2 gap-4 mb-6">
+                      <div className="bg-surface-container-lowest rounded-xl p-4">
+                        <p className="text-[10px] uppercase tracking-widest font-label text-outline mb-1">Signers Registered</p>
+                        <p className="text-2xl font-headline font-bold text-primary">{state.signerCount.toString()}</p>
+                      </div>
+                      <div className="bg-surface-container-lowest rounded-xl p-4">
+                        <p className="text-[10px] uppercase tracking-widest font-label text-outline mb-1">Threshold</p>
+                        <p className="text-2xl font-headline font-bold text-secondary">{state.threshold.toString()}</p>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-on-surface-variant text-sm mb-6">Loading on-chain state...</p>
+                  )}
+                  <div className="bg-surface-container-lowest rounded-xl p-4 flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-[10px] uppercase tracking-widest font-label text-outline mb-1">Contract Address</p>
+                      <p className="font-label text-xs text-on-surface truncate">{contractAddress}</p>
+                    </div>
+                    <CopyButton text={contractAddress} />
+                  </div>
+                  <p className="text-xs text-on-surface-variant mt-6">
+                    State refreshes automatically as the deployer adds signers and finalizes.
+                  </p>
+                </div>
+                <div className="lg:col-span-1">
+                  <IdentityCard secret={mySecret} commitment={myCommitment} />
                 </div>
               </div>
             </>

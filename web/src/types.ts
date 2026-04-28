@@ -1,6 +1,6 @@
 export type Mode = "token" | "wallet";
 
-export type Phase = "connect" | "connecting" | "setup" | "init-signers" | "dashboard" | "error";
+export type Phase = "connect" | "connecting" | "setup" | "init-signers" | "pending-finalize" | "dashboard" | "error";
 
 export type WalletTab = "overview" | "deposit" | "propose-transfer" | "propose-signer" | "transactions";
 

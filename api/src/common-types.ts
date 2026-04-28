@@ -20,6 +20,7 @@ export type MPayDerivedState = {
   readonly signerCount: bigint;
   readonly threshold: bigint;
   readonly finalized: boolean;
+  readonly owner: Uint8Array;
   readonly txCounter: bigint;
   readonly vaultBalance: bigint;
 };

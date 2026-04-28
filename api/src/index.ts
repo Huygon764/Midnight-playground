@@ -109,6 +109,7 @@ export class MPayAPI implements DeployedMPayAPI {
             signerCount: l.signerCount,
             threshold: l.threshold,
             finalized: l.finalized,
+            owner: l.owner,
             txCounter: l.txCounter,
             vaultBalance,
           };
